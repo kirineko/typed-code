@@ -55,7 +55,7 @@ async def test_refresh_ignores_order_for_defaults(tmp_path: Path) -> None:
             json={
                 "data": [
                     {"id": "zzz-first"},
-                    {"id": "gpt-5.6-sol"},
+                    {"id": "gpt-5.6-terra"},
                     {"id": "aaa-last"},
                 ]
             },
@@ -65,13 +65,13 @@ async def test_refresh_ignores_order_for_defaults(tmp_path: Path) -> None:
     async with httpx.AsyncClient(transport=transport, base_url="http://cliproxy.test") as client:
         ids = await catalog.refresh_cliproxy(client=client)
 
-    assert set(ids) == {"zzz-first", "gpt-5.6-sol", "aaa-last"}
-    resolved = catalog.resolve(ProviderName.CLIPROXY, "gpt-5.6-sol")
-    assert resolved.model_id == "gpt-5.6-sol"
+    assert set(ids) == {"zzz-first", "gpt-5.6-terra", "aaa-last"}
+    resolved = catalog.resolve(ProviderName.CLIPROXY, "gpt-5.6-terra")
+    assert resolved.model_id == "gpt-5.6-terra"
     # Default uses settings.default_model name match
     default = catalog.resolve(None, None)
     assert default.provider is ProviderName.CLIPROXY
-    assert default.model_id == "gpt-5.6-sol"
+    assert default.model_id == "gpt-5.6-terra"
 
 
 @pytest.mark.asyncio

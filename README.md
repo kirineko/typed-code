@@ -23,25 +23,39 @@ npm run build -w @typed-code/cli
 One command is enough for ordinary local use:
 
 ```bash
-npx typed-code-cli --new --workspace "$PWD"
-# or: node packages/cli/dist/bin.js --new
+npx typed-code-cli --workspace "$PWD"
+# or: node packages/cli/dist/bin.js
 ```
 
 What happens:
 
 1. Ensures `~/.config/typed-code/credentials.toml` (dir `0700`, file `0600`)
 2. **Auto-generates** a server bearer token (never shown in the TUI)
-3. If **no** provider key exists, runs first-run setup (DeepSeek **or** CLIProxy)
-4. Starts `uv run typed-code serve` on loopback when needed (reuses a compatible server)
-5. Opens the interactive TUI
+3. Starts or reuses the compatible loopback agent service
+4. Runs secure provider setup inside the TUI when no provider is available
+5. Opens an unsaved new-session draft for the canonical workspace
+6. Persists the session only after the first non-empty prompt
+
+Historical sessions are never selected automatically. Use `/resume` to return to current-project history or `/resume --all` to browse canonical workspace groups.
+
+Startup model precedence is: explicit `--provider`/`--model`, the most recent successful `/model` selection, `deepseek/deepseek-v4-flash` when DeepSeek is available, the service default, then the first available model. This means a fresh setup with both provider credentials prefers DeepSeek, while a later user selection such as `cliproxy/gpt-5.6-terra` is restored on the next launch. The `/model` flow uses each provider's declared Responses API effort table: DeepSeek offers `none`/`low`/`high`/`max` and defaults to `high`; OpenAI reasoning models offer `none`/`low`/`medium`/`high`/`xhigh`/`max` and default to `medium`. The selected effort appears in the header and `/status`, persists for the next launch, and is sent unchanged with each future turn. Models without declared reasoning support receive no inferred setting.
 
 ### In-chat commands
 
 | Command | Purpose |
 |---------|---------|
-| `/help` | List commands |
-| `/config` | Set/replace DeepSeek or CLIProxy API keys; **hot-reloads** the service |
-| `/model` | Switch model for the **idle** current session (shows context budget) |
+| `/help` | Show command help |
+| `/config [deepseek\|cliproxy]` | Set or replace a provider key and hot-reload the service |
+| `/model [provider/model]` | Select a model, then choose its supported thinking intensity |
+| `/new` | Return to an unsaved draft for the launch workspace |
+| `/resume [session-prefix]` | Resume current-project history |
+| `/resume --all` | Browse sessions grouped by canonical workspace |
+| `/status` | Show session, connection, model, and confirmed usage details |
+| `/abort` | Cancel the active run |
+| `/keys` | Show keyboard controls |
+| `/quit` | Exit without cancelling a server-owned run |
+
+Slash commands and their model/session/provider arguments are completed in the composer.
 
 ### Context budgets (compaction + status)
 
@@ -51,15 +65,30 @@ What happens:
 | OpenAI-family via CLIProxy (`gpt-*`, …) | **272_000** |
 | Other / unknown | **128_000** |
 
-Status bar shows `tokens≈used/budget` when usage is known.
+The footer shows provider-confirmed input, output, and total usage against the selected model budget. While a new turn runs, it retains the previous confirmed value and marks current usage pending; it does not estimate live tokens from text length.
 
 ### Keys (no flags needed)
+| Key | Action |
+|-----|--------|
+| `Enter` | Submit |
+| `Alt+Enter`, `Shift+Enter`, or `Ctrl+Enter` | Insert newline |
+| `Tab` | Complete slash commands, arguments, and paths |
+| `Ctrl+End` | Follow latest streamed output |
+| `Ctrl+T` | Select a completed thinking block; press again to collapse the expanded block |
+| `Esc` or `Ctrl+D` | Abort an active run |
+| `y` / `n` | Approve or reject a pending tool call |
+| `Ctrl+L` | Redraw |
+| `Ctrl+C` | Quit without cancelling a server-owned run |
+
+### Credentials
+
 
 Stored in:
 
 ```text
 ${XDG_CONFIG_HOME:-~/.config}/typed-code/
-├── config.toml          # optional non-secret settings
+├── config.toml          # optional non-secret service settings
+├── preferences.toml     # most recently selected provider/model (0600)
 └── credentials.toml     # server_token + provider keys (0600)
 ```
 

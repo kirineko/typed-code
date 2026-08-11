@@ -44,3 +44,44 @@ def test_cliproxy_allows_required_tool_choice() -> None:
         requested=RunSettingRequest(tool_choice="required"),
     )
     assert eff.tool_choice == "required"
+
+
+
+def test_supported_models_use_provider_reasoning_defaults() -> None:
+    deepseek = normalize_settings(
+        DEEPSEEK_PROFILE,
+        model_id="deepseek-v4-flash",
+    )
+    terra = normalize_settings(
+        cliproxy_profile("gpt-5.6-terra"),
+        model_id="gpt-5.6-terra",
+    )
+    unknown = normalize_settings(
+        cliproxy_profile("plain-model"),
+        model_id="plain-model",
+    )
+
+    assert deepseek.reasoning_level == "high"
+    assert terra.reasoning_level == "medium"
+    assert unknown.reasoning_level is None
+
+
+def test_provider_specific_reasoning_levels_are_validated() -> None:
+    deepseek_max = normalize_settings(
+        DEEPSEEK_PROFILE,
+        model_id="deepseek-v4-flash",
+        requested=RunSettingRequest(reasoning_level="max"),
+    )
+    openai_xhigh = normalize_settings(
+        cliproxy_profile("gpt-5.6-terra"),
+        model_id="gpt-5.6-terra",
+        requested=RunSettingRequest(reasoning_level="xhigh"),
+    )
+    assert deepseek_max.reasoning_level == "max"
+    assert openai_xhigh.reasoning_level == "xhigh"
+    with pytest.raises(DomainValidationError, match="not supported"):
+        normalize_settings(
+            DEEPSEEK_PROFILE,
+            model_id="deepseek-v4-flash",
+            requested=RunSettingRequest(reasoning_level="medium"),
+        )

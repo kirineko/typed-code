@@ -8,10 +8,18 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import type { ProviderName, ReasoningLevel } from "@typed-code/sdk";
+
 export interface LocalCredentials {
   server_token?: string;
   deepseek_api_key?: string;
   cliproxy_api_key?: string;
+}
+
+export interface ModelPreference {
+  provider: ProviderName;
+  model: string;
+  reasoning_level?: ReasoningLevel;
 }
 
 export function configDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -24,6 +32,10 @@ export function configDir(env: NodeJS.ProcessEnv = process.env): string {
 
 export function credentialsPath(env: NodeJS.ProcessEnv = process.env): string {
   return join(configDir(env), "credentials.toml");
+}
+
+export function modelPreferencePath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(configDir(env), "preferences.toml");
 }
 
 export function ensureConfigDir(dir: string): void {
@@ -104,6 +116,48 @@ export function writeCredentialsFile(path: string, creds: LocalCredentials): voi
     chmodSync(path, 0o600);
   } catch {
     // best effort
+  }
+}
+
+export function readModelPreference(path: string): ModelPreference | null {
+  if (!existsSync(path)) return null;
+  const map = parseSimpleToml(readFileSync(path, "utf8"));
+  const provider = map.provider;
+  const model = map.model?.trim();
+  if ((provider !== "deepseek" && provider !== "cliproxy") || !model) {
+    return null;
+  }
+  const rawReasoning = map.reasoning_level;
+  const reasoning_level =
+    rawReasoning === "none" ||
+    rawReasoning === "low" ||
+    rawReasoning === "medium" ||
+    rawReasoning === "high" ||
+    rawReasoning === "xhigh" ||
+    rawReasoning === "max"
+      ? rawReasoning
+      : undefined;
+  return reasoning_level
+    ? { provider, model, reasoning_level }
+    : { provider, model };
+}
+
+export function writeModelPreference(path: string, preference: ModelPreference): void {
+  const lines = [
+    "# typed-code local preferences",
+    `provider = ${tomlString(preference.provider)}`,
+    `model = ${tomlString(preference.model)}`,
+  ];
+  if (preference.reasoning_level) {
+    lines.push(`reasoning_level = ${tomlString(preference.reasoning_level)}`);
+  }
+  lines.push("");
+  const body = lines.join("\n");
+  writeFileSync(path, body, { mode: 0o600 });
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // best effort on platforms that ignore mode
   }
 }
 

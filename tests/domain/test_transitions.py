@@ -13,7 +13,10 @@ from typed_code.domain import (
     complete_run,
     create_session,
     fail_run,
+    finish_thinking,
     interrupt_run,
+    record_assistant_delta,
+    record_thinking_delta,
     request_approval,
     resolve_approval,
     start_turn,
@@ -27,6 +30,7 @@ from typed_code.protocol.common import (
     SessionPhase,
 )
 from typed_code.protocol.errors import ErrorCode, StructuredError
+from typed_code.protocol.transcript import ThinkingItem
 
 FIXED = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -115,6 +119,39 @@ def test_fail_and_interrupt_and_cancel() -> None:
     assert interrupted.updated_run is not None
     assert interrupted.updated_run.status is RunStatus.INTERRUPTED
     assert any(i.type == "system_notice" for i in interrupted.transcript_items)
+
+
+def test_stream_events_keep_partial_text_ephemeral_and_commit_thinking() -> None:
+    session = start_turn(_session(), "go", clock=_clock, run_id="run-1").session
+
+    assistant = record_assistant_delta(
+        session,
+        message_id="assistant-1",
+        delta="partial",
+        clock=_clock,
+    )
+    assert assistant.session.transcript == session.transcript
+    assert assistant.events[0].type is EventType.MESSAGE_ASSISTANT_DELTA
+
+    thought = record_thinking_delta(
+        assistant.session,
+        thinking_id="thinking-1",
+        delta="inspect",
+        clock=_clock,
+    )
+    assert thought.events[0].type is EventType.THINKING_DELTA
+
+    completed = finish_thinking(
+        thought.session,
+        thinking_id="thinking-1",
+        text="inspect files",
+        clock=_clock,
+    )
+    assert completed.events[0].type is EventType.THINKING_DONE
+    item = completed.session.transcript[-1]
+    assert isinstance(item, ThinkingItem)
+    assert item.id == "thinking-1"
+    assert item.text == "inspect files"
 
 
 def test_approval_flow() -> None:

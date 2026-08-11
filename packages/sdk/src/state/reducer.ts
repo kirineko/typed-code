@@ -24,6 +24,7 @@ export function applySnapshot(
     // Snapshot is authoritative for transcript; clear ephemeral buffers
     assistantBuffers: {},
     thinkingBuffers: {},
+    tools: approvalTools(snapshot.pending_approvals),
   };
 }
 
@@ -69,7 +70,19 @@ export function applyEvent(
         active_run: null,
         pending_approvals: [],
       }));
-      next = { ...next, phase: "idle" };
+      next = {
+        ...next,
+        phase: "idle",
+        assistantBuffers: {},
+        thinkingBuffers: {},
+      };
+      next = {
+        ...next,
+        tools: settleApprovalTools(
+          next.tools,
+          data.type === "run.completed" ? "completed" : "failed",
+        ),
+      };
       if (data.type === "run.failed") {
         next = { ...next, error: data.error };
       }
@@ -122,6 +135,18 @@ export function applyEvent(
     case "tool.started":
     case "tool.updated": {
       const tools = { ...next.tools };
+      if (data.type === "tool.started") {
+        for (const [key, tool] of Object.entries(tools)) {
+          if (
+            key.startsWith("approval:") &&
+            tool.status === "running" &&
+            tool.tool_name === data.tool_name
+          ) {
+            delete tools[key];
+            break;
+          }
+        }
+      }
       const prev = tools[data.tool_call_id];
       const tool: StreamingTool = {
         tool_call_id: data.tool_call_id,
@@ -156,6 +181,18 @@ export function applyEvent(
         pending_approvals: upsertApproval(s.pending_approvals, data.approval),
       }));
       next = { ...next, phase: "awaiting_approval" };
+      next = {
+        ...next,
+        tools: {
+          ...next.tools,
+          [`approval:${data.approval.approval_id}`]: {
+            tool_call_id: `approval:${data.approval.approval_id}`,
+            tool_name: data.approval.tool_name,
+            summary: data.approval.summary,
+            status: "started",
+          },
+        },
+      };
       break;
     }
     case "approval.resolved": {
@@ -172,6 +209,20 @@ export function applyEvent(
       }));
       if (next.snapshot) {
         next = { ...next, phase: next.snapshot.phase };
+      }
+      const approvalKey = `approval:${data.approval_id}`;
+      const approvalTool = next.tools[approvalKey];
+      if (approvalTool) {
+        next = {
+          ...next,
+          tools: {
+            ...next.tools,
+            [approvalKey]: {
+              ...approvalTool,
+              status: data.decision === "approve" ? "running" : "denied",
+            },
+          },
+        };
       }
       break;
     }
@@ -255,4 +306,33 @@ function upsertApproval(
   const copy = list.slice();
   copy[idx] = approval;
   return copy;
+}
+
+function approvalTools(
+  approvals: readonly ApprovalSummary[],
+): Record<string, StreamingTool> {
+  return Object.fromEntries(
+    approvals.map((approval) => [
+      `approval:${approval.approval_id}`,
+      {
+        tool_call_id: `approval:${approval.approval_id}`,
+        tool_name: approval.tool_name,
+        summary: approval.summary,
+        status: "started" as const,
+      },
+    ]),
+  );
+}
+
+function settleApprovalTools(
+  tools: Readonly<Record<string, StreamingTool>>,
+  status: "completed" | "failed",
+): Record<string, StreamingTool> {
+  const next = { ...tools };
+  for (const [key, tool] of Object.entries(next)) {
+    if (key.startsWith("approval:") && tool.status === "running") {
+      next[key] = { ...tool, status };
+    }
+  }
+  return next;
 }

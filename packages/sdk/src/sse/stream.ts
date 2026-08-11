@@ -10,6 +10,7 @@ export interface StreamOptions {
   onEvent: (event: EventEnvelope) => void;
   onReset: (snapshot: SessionSnapshot) => void;
   onError?: (err: unknown) => void;
+  onOpen?: () => void;
   backoffMs?: { initial: number; max: number };
 }
 
@@ -66,6 +67,7 @@ export function streamSessionEvents(
             status: response.status,
           });
         }
+        options.onOpen?.();
 
         attempt = 0;
         const parser = new SseParser();

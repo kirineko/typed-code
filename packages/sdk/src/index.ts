@@ -47,6 +47,7 @@ export {
   type ModelListResponse,
   type ProviderAvailability,
   type ProviderName,
+  type ReasoningLevel,
   type RunStatus,
   type RunSummary,
   type SessionListResponse,

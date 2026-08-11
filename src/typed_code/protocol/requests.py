@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import field_validator
 
 from typed_code.protocol.common import ProviderName, StrictCommandModel
@@ -9,6 +11,7 @@ from typed_code.protocol.common import ProviderName, StrictCommandModel
 
 class CreateTurnRequest(StrictCommandModel):
     prompt: str
+    reasoning_level: Literal["none", "low", "medium", "high", "xhigh", "max"] | None = None
 
     @field_validator("prompt")
     @classmethod

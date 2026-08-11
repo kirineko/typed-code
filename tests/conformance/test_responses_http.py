@@ -16,12 +16,13 @@ from typed_code.protocol.common import ProviderName, SessionPhase
 from typed_code.providers.catalog import ModelCatalog
 from typed_code.providers.factories import build_responses_model
 from typed_code.providers.profiles import DEEPSEEK_MODEL_ID
+from typed_code.providers.settings_normalize import RunSettingRequest
 from typed_code.runtime import AgentRuntime
 
 
 @pytest.mark.asyncio
 async def test_text_via_fake_responses_no_chat_completions(tmp_path: Path) -> None:
-    state = FakeResponsesState(mode="text", model_ids=["gpt-5.6-sol"])
+    state = FakeResponsesState(mode="text", model_ids=["gpt-5.6-terra"])
     app = create_fake_app(state)
 
     transport = httpx.ASGITransport(app=app)
@@ -44,9 +45,9 @@ async def test_text_via_fake_responses_no_chat_completions(tmp_path: Path) -> No
         )
         catalog = ModelCatalog(settings=settings, credentials=creds)
         await catalog.refresh_cliproxy(client=http_client)
-        assert "gpt-5.6-sol" in {m.model_id for m in catalog.list_models().models}
+        assert "gpt-5.6-terra" in {m.model_id for m in catalog.list_models().models}
 
-        resolved = catalog.resolve(ProviderName.CLIPROXY, "gpt-5.6-sol")
+        resolved = catalog.resolve(ProviderName.CLIPROXY, "gpt-5.6-terra")
         model = build_responses_model(
             resolved, api_key="k", http_client=http_client
         )
@@ -57,16 +58,22 @@ async def test_text_via_fake_responses_no_chat_completions(tmp_path: Path) -> No
             created = await repo.create_session(
                 workspace_path=str(tmp_path / "ws"),
                 provider=ProviderName.CLIPROXY,
-                model="gpt-5.6-sol",
+                model="gpt-5.6-terra",
             )
             runtime = AgentRuntime(
                 repository=repo, catalog=catalog, model_override=model
             )
-            turn = await runtime.run_turn(created.snapshot.session_id, "ping")
+            turn = await runtime.run_turn(
+                created.snapshot.session_id,
+                "ping",
+                setting_request=RunSettingRequest(reasoning_level="xhigh"),
+            )
             # Either success with fake output or failed with sanitized error if wire format differs
             assert turn.final.snapshot.session_id == created.snapshot.session_id
             assert "/v1/chat/completions" not in state.paths
             assert not any(p.endswith("chat/completions-HIT") for p in state.paths)
+            assert state.bodies[-1]["reasoning"]["effort"] == "xhigh"
+            assert state.bodies[-1]["reasoning"]["summary"] == "auto"
             # Factory/runtime used responses path when model was invoked
             if turn.final.snapshot.phase is SessionPhase.IDLE and any(
                 i.type == "assistant_message" for i in turn.final.snapshot.transcript
@@ -110,6 +117,7 @@ async def test_api_failure_sanitized(tmp_path: Path) -> None:
                 repository=repo, catalog=catalog, model_override=model
             )
             turn = await runtime.run_turn(created.snapshot.session_id, "hi")
+            assert state.bodies[-1]["reasoning"]["effort"] == "high"
             assert turn.final.snapshot.phase is SessionPhase.IDLE
             # Secret must not appear in public event payloads
             blob = str(turn.final.events)

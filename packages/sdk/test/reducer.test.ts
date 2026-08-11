@@ -155,4 +155,133 @@ describe("session reducer", () => {
     assert.equal(state.phase, "idle");
     assert.equal(state.snapshot?.active_run, null);
   });
+
+  it("drops incomplete stream buffers when a run terminates", () => {
+    let state = applySnapshot(createSessionViewState(), baseSnapshot());
+    state = applyEvent(
+      state,
+      env(1, "message.assistant.delta", {
+        type: "message.assistant.delta",
+        message_id: "partial",
+        delta: "unfinished",
+      }),
+    );
+    state = applyEvent(
+      state,
+      env(2, "thinking.delta", {
+        type: "thinking.delta",
+        thinking_id: "thought",
+        delta: "unfinished",
+      }),
+    );
+    state = applyEvent(
+      state,
+      env(3, "run.cancelled", { type: "run.cancelled", run_id: "r1" }),
+    );
+
+    assert.deepEqual(state.assistantBuffers, {});
+    assert.deepEqual(state.thinkingBuffers, {});
+  });
+
+  it("retains a stable named tool through failure", () => {
+    let state = applySnapshot(createSessionViewState(), baseSnapshot());
+    state = applyEvent(
+      state,
+      env(1, "tool.started", {
+        type: "tool.started",
+        tool_call_id: "tc1",
+        tool_name: "bash",
+        summary: "run tests",
+      }),
+    );
+    state = applyEvent(
+      state,
+      env(2, "tool.failed", {
+        type: "tool.failed",
+        tool_call_id: "tc1",
+        summary: "tests failed",
+      }),
+    );
+
+    assert.deepEqual(state.tools.tc1, {
+      tool_call_id: "tc1",
+      tool_name: "bash",
+      summary: "tests failed",
+      status: "failed",
+    });
+  });
+
+  it("applies replay reset snapshot and rejects older events", () => {
+    let state = applySnapshot(createSessionViewState(), baseSnapshot());
+    state = applyEvent(
+      state,
+      env(5, "replay.reset", {
+        type: "replay.reset",
+        reason: "retention",
+        snapshot: baseSnapshot({
+          revision: 4,
+          latest_event_sequence: 5,
+          transcript: [
+            {
+              type: "assistant_message",
+              id: "message-1",
+              created_at: "t1",
+              text: "replayed",
+            },
+          ],
+        }),
+      }),
+    );
+    const duplicate = applyEvent(
+      state,
+      env(4, "message.assistant.delta", {
+        type: "message.assistant.delta",
+        message_id: "old",
+        delta: "ignored",
+      }),
+    );
+
+    assert.equal(state.snapshot?.revision, 4);
+    assert.equal(state.snapshot?.transcript.length, 1);
+    assert.equal(duplicate, state);
+  });
+  it("retains a named tool lifecycle when approval events are the only tool signal", () => {
+    let state = applySnapshot(createSessionViewState(), baseSnapshot());
+    state = applyEvent(
+      state,
+      env(1, "approval.requested", {
+        type: "approval.requested",
+        approval: {
+          approval_id: "approval-1",
+          run_id: "run-1",
+          tool_name: "bash",
+          summary: "printf smoke-ok",
+          status: "pending",
+          created_at: "t",
+        },
+      }),
+    );
+    assert.equal(state.tools["approval:approval-1"]?.tool_name, "bash");
+    assert.equal(state.tools["approval:approval-1"]?.status, "started");
+
+    state = applyEvent(
+      state,
+      env(2, "approval.resolved", {
+        type: "approval.resolved",
+        approval_id: "approval-1",
+        decision: "approve",
+      }),
+    );
+    assert.equal(state.tools["approval:approval-1"]?.status, "running");
+
+    state = applyEvent(
+      state,
+      env(3, "run.completed", {
+        type: "run.completed",
+        run_id: "run-1",
+      }),
+    );
+    assert.equal(state.tools["approval:approval-1"]?.status, "completed");
+  });
+
 });

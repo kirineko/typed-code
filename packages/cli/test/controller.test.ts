@@ -134,6 +134,22 @@ describe("SessionController", () => {
     assert.equal(c.view.snapshot?.phase, "idle");
   });
 
+  it("returns to live when an SSE connection reopens without a new event", async () => {
+    let streamOptions: StreamOptions | null = null;
+    const client = mockClient({
+      streamEvents: (_id, options) => {
+        streamOptions = options;
+        return { lastSequence: 2, close() {} };
+      },
+    });
+    const c = new SessionController(client);
+    await c.attach("sess-1");
+    streamOptions?.onError?.(new Error("disconnected"));
+    assert.equal(c.view.connection, "reconnecting");
+    streamOptions?.onOpen?.();
+    assert.equal(c.view.connection, "live");
+  });
+
   it("approve uses pending approval id", async () => {
     let seenId: string | null = null;
     const client = mockClient({

@@ -9,6 +9,7 @@ from typed_code.domain.errors import DomainConflict
 from typed_code.persistence.repository import PersistResult, SessionRepository
 from typed_code.protocol.common import ApprovalDecision, SessionPhase
 from typed_code.protocol.sessions import CreateTurnResponse
+from typed_code.providers.settings_normalize import RunSettingRequest
 from typed_code.runtime.adapter import AgentRuntime
 from typed_code.service.event_bus import EventBus
 
@@ -24,7 +25,13 @@ class SessionManager:
     async def recover(self) -> list[PersistResult]:
         return await self.repository.recover_abandoned_runs()
 
-    async def submit_turn(self, session_id: str, prompt: str) -> CreateTurnResponse:
+    async def submit_turn(
+        self,
+        session_id: str,
+        prompt: str,
+        *,
+        setting_request: RunSettingRequest | None = None,
+    ) -> CreateTurnResponse:
         async with self._lock:
             session = await self.repository.load_session(session_id)
             if session.phase is not SessionPhase.IDLE:
@@ -40,7 +47,9 @@ class SessionManager:
                 try:
                     # Signal once start_turn has been entered via first durable change
                     # by polling after kickoff; runtime.start is internal.
-                    await self.runtime.run_turn(session_id, prompt)
+                    await self.runtime.run_turn(
+                        session_id, prompt, setting_request=setting_request
+                    )
                 except BaseException as exc:
                     error_box.append(exc)
                     raise

@@ -37,6 +37,7 @@ def test_defaults_without_file_or_env(tmp_path: Path) -> None:
     assert settings.cliproxy_base_url == DEFAULT_CLIPROXY_BASE_URL
     assert settings.default_provider == DEFAULT_PROVIDER
     assert settings.default_model == DEFAULT_MODEL
+    assert settings.default_model == "gpt-5.6-terra"
     assert settings.data_dir == tmp_path / "data" / "typed-code"
     assert settings.bash_executable == "/bin/bash"
 

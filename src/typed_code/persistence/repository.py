@@ -26,8 +26,11 @@ from typed_code.domain.transitions import (
     create_session,
     fail_run,
     finish_assistant_turn,
+    finish_thinking,
     interrupt_run,
+    record_assistant_delta,
     record_compaction,
+    record_thinking_delta,
     request_approval,
     resolve_approval,
     start_turn,
@@ -128,6 +131,34 @@ class SessionRepository:
         return await self._mutate(
             session_id,
             lambda s: update_session_model(s, provider=provider, model=model),
+        )
+
+    async def record_assistant_delta(
+        self, session_id: str, *, message_id: str, delta: str
+    ) -> PersistResult:
+        return await self._mutate(
+            session_id,
+            lambda s: record_assistant_delta(
+                s, message_id=message_id, delta=delta
+            ),
+        )
+
+    async def record_thinking_delta(
+        self, session_id: str, *, thinking_id: str, delta: str
+    ) -> PersistResult:
+        return await self._mutate(
+            session_id,
+            lambda s: record_thinking_delta(
+                s, thinking_id=thinking_id, delta=delta
+            ),
+        )
+
+    async def finish_thinking(
+        self, session_id: str, *, thinking_id: str, text: str
+    ) -> PersistResult:
+        return await self._mutate(
+            session_id,
+            lambda s: finish_thinking(s, thinking_id=thinking_id, text=text),
         )
 
     async def complete_run(self, session_id: str) -> PersistResult:
@@ -403,6 +434,7 @@ class SessionRepository:
         assistant_text: str,
         model_message_payloads: list[Any],
         usage: dict[str, int | None] | None = None,
+        message_id: str | None = None,
     ) -> PersistResult:
         async with self._db.write_transaction():
             session = await self._load_session_for_update(session_id)
@@ -411,6 +443,7 @@ class SessionRepository:
                 assistant_text=assistant_text,
                 model_message_payloads=model_message_payloads,
                 usage=usage,
+                message_id=message_id,
             )
             persist = await self._write_transition(result)
             if usage is not None:

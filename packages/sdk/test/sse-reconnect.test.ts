@@ -74,6 +74,7 @@ describe("streamEvents", () => {
     };
 
     let calls = 0;
+    let opens = 0;
     const fetchImpl: typeof fetch = async () => {
       calls += 1;
       return new Response(sseBody([makeFrame(calls === 1 ? 2 : 1)]), {
@@ -92,6 +93,9 @@ describe("streamEvents", () => {
       after: 0,
       onEvent: (event) => seen.push(event),
       onReset: () => {},
+      onOpen: () => {
+        opens += 1;
+      },
       onError: (error) => errors.push(error),
       backoffMs: { initial: 5, max: 5 },
     });
@@ -101,6 +105,7 @@ describe("streamEvents", () => {
     assert.equal(sub.lastSequence, 1);
     assert.ok(errors.some((error) => String(error).includes("SSE sequence gap")));
     assert.ok(calls >= 2);
+    assert.ok(opens >= 2);
     sub.close();
   });
 

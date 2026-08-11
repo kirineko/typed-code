@@ -5,20 +5,33 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
+from time import monotonic
 from typing import Any, cast
 
 from pydantic_ai import (
     Agent,
+    AgentRunResultEvent,
     DeferredToolRequests,
     DeferredToolResults,
+    FinalResultEvent,
+    PartDeltaEvent,
+    PartEndEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+    ThinkingPart,
+    ThinkingPartDelta,
     ToolApproved,
     ToolDenied,
 )
+from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 
 from typed_code.compaction.compact import compact_messages
 from typed_code.config.settings import Settings
 from typed_code.domain.errors import DomainConflict
+from typed_code.domain.ids import new_transcript_item_id
 from typed_code.domain.transitions import ModelMessageDraft
 from typed_code.persistence.repository import PersistResult, SessionRepository
 from typed_code.protocol.common import ApprovalDecision, ProviderName, SessionPhase
@@ -42,6 +55,39 @@ from typed_code.runtime.tools import (
 from typed_code.workspace.backend import LocalBashExecutionBackend
 from typed_code.workspace.locks import WorkspaceGateRegistry
 from typed_code.workspace.policy import tool_summary
+
+
+def _model_settings(effective: EffectiveRunSettings) -> ModelSettings:
+    settings: dict[str, Any] = {}
+    if effective.temperature is not None:
+        settings["temperature"] = effective.temperature
+    if effective.max_output_tokens is not None:
+        settings["max_tokens"] = effective.max_output_tokens
+    if effective.reasoning_level is not None:
+        settings["openai_reasoning_effort"] = effective.reasoning_level
+        if effective.provider is ProviderName.CLIPROXY:
+            settings["openai_reasoning_summary"] = "auto"
+    if effective.tool_choice is not None:
+        settings["tool_choice"] = effective.tool_choice
+    if effective.parallel_tool_calls is not None:
+        settings["parallel_tool_calls"] = effective.parallel_tool_calls
+    return cast(ModelSettings, settings)
+
+def _thinking_text(part: ThinkingPart) -> str:
+    """Return displayable reasoning, including DeepSeek's provider-native field."""
+    if part.content:
+        return part.content
+    details = part.provider_details
+    if details is None:
+        return ""
+    raw_content = details.get("raw_content")
+    if isinstance(raw_content, str):
+        return raw_content
+    if isinstance(raw_content, list):
+        return "".join(item for item in raw_content if isinstance(item, str))
+    return ""
+
+
 
 
 def _make_workspace_agent(model: Model, system_prompt: str) -> Agent[WorkspaceToolDeps, Any]:
@@ -165,8 +211,13 @@ class AgentRuntime:
                 )
 
             try:
-                result = await agent.run(
-                    prompt, message_history=message_history, deps=deps
+                result, message_id = await self._run_streaming(
+                    session_id=session_id,
+                    agent=agent,
+                    prompt=prompt,
+                    message_history=message_history,
+                    deps=deps,
+                    effective=effective,
                 )
             except asyncio.CancelledError:
                 final = await self._cancel_or_snapshot(session_id)
@@ -197,6 +248,7 @@ class AgentRuntime:
                 effective=effective,
                 compacted=compacted,
                 scope=scope,
+                message_id=message_id,
             )
         except DomainConflict:
             raise
@@ -292,10 +344,13 @@ class AgentRuntime:
         pai = [r for r in history_records if r.payload_json.lstrip().startswith("[")]
         message_history = loads_messages(pai) if pai else None
 
-        result = await agent.run(
+        result, message_id = await self._run_streaming(
+            session_id=session_id,
+            agent=agent,
             message_history=message_history,
             deferred_tool_results=deferred,
             deps=deps,
+            effective=effective,
         )
 
         # Synthetic start for TurnResult
@@ -312,6 +367,7 @@ class AgentRuntime:
             effective=effective,
             compacted=False,
             scope=scope,
+            message_id=message_id,
         )
 
     async def _prepare_history(
@@ -397,6 +453,148 @@ class AgentRuntime:
             )
         return self._backends[key]
 
+    async def _run_streaming(
+        self,
+        *,
+        session_id: str,
+        agent: Agent[Any, Any],
+        prompt: str | None = None,
+        message_history: list[Any] | None = None,
+        deferred_tool_results: DeferredToolResults | None = None,
+        deps: WorkspaceToolDeps | None = None,
+        message_id: str | None = None,
+        effective: EffectiveRunSettings,
+    ) -> tuple[Any, str]:
+        """Run an agent while durably publishing final-text and reasoning fragments."""
+        assistant_id = message_id or new_transcript_item_id()
+        pending_text: dict[int, str] = {}
+        thinking: dict[int, tuple[str, str]] = {}
+        completed_thinking: list[tuple[str, str]] = []
+        final_text_index: int | None = None
+        last_part: tuple[int, str] | None = None
+        result: Any | None = None
+        assistant_delta_buffer = ""
+        last_assistant_flush = 0.0
+
+        async def flush_assistant_delta(*, force: bool = False) -> None:
+            nonlocal assistant_delta_buffer, last_assistant_flush
+            if not assistant_delta_buffer:
+                return
+            now = monotonic()
+            if (
+                not force
+                and len(assistant_delta_buffer) < 256
+                and now - last_assistant_flush < 0.05
+            ):
+                return
+            delta = assistant_delta_buffer
+            assistant_delta_buffer = ""
+            last_assistant_flush = now
+            await self.repository.record_assistant_delta(
+                session_id,
+                message_id=assistant_id,
+                delta=delta,
+            )
+
+        async with agent.run_stream_events(
+            prompt,
+            message_history=message_history,
+            deferred_tool_results=deferred_tool_results,
+            deps=deps,
+            model_settings=_model_settings(effective),
+        ) as events:
+            async for event in events:
+                if isinstance(event, PartStartEvent):
+                    if isinstance(event.part, TextPart):
+                        pending_text[event.index] = event.part.content
+                        last_part = (event.index, "text")
+                    elif isinstance(event.part, ThinkingPart):
+                        thinking_id = new_transcript_item_id()
+                        text = _thinking_text(event.part)
+                        thinking[event.index] = (thinking_id, text)
+                        last_part = (event.index, "thinking")
+                        if text:
+                            await self.repository.record_thinking_delta(
+                                session_id,
+                                thinking_id=thinking_id,
+                                delta=text,
+                            )
+                    else:
+                        last_part = (event.index, "other")
+                elif isinstance(event, FinalResultEvent):
+                    if (
+                        event.tool_name is None
+                        and last_part is not None
+                        and last_part[1] == "text"
+                    ):
+                        final_text_index = last_part[0]
+                        initial = pending_text.get(final_text_index, "")
+                        if initial:
+                            assistant_delta_buffer += initial
+                            await flush_assistant_delta(force=True)
+                elif isinstance(event, PartDeltaEvent):
+                    if isinstance(event.delta, TextPartDelta):
+                        delta = event.delta.content_delta
+                        pending_text[event.index] = (
+                            pending_text.get(event.index, "") + delta
+                        )
+                        if event.index == final_text_index and delta:
+                            assistant_delta_buffer += delta
+                            await flush_assistant_delta()
+                    elif isinstance(event.delta, ThinkingPartDelta):
+                        delta = event.delta.content_delta or ""
+                        current = thinking.get(event.index)
+                        if current is not None and delta:
+                            thinking_id, text = current
+                            thinking[event.index] = (thinking_id, text + delta)
+                            await self.repository.record_thinking_delta(
+                                session_id,
+                                thinking_id=thinking_id,
+                                delta=delta,
+                            )
+                elif isinstance(event, PartEndEvent):
+                    if isinstance(event.part, ThinkingPart):
+                        current = thinking.pop(event.index, None)
+                        thinking_id = (
+                            current[0] if current is not None else new_transcript_item_id()
+                        )
+                        text = _thinking_text(event.part)
+                        if not text and current is not None:
+                            text = current[1]
+                        completed_thinking.append((thinking_id, text))
+                    elif isinstance(event.part, TextPart):
+                        if event.index == final_text_index:
+                            await flush_assistant_delta(force=True)
+                        else:
+                            pending_text.pop(event.index, None)
+                elif isinstance(event, AgentRunResultEvent):
+                    provider_thinking = [
+                        _thinking_text(part)
+                        for message in event.result.new_messages()
+                        if isinstance(message, ModelResponse)
+                        for part in message.parts
+                        if isinstance(part, ThinkingPart)
+                    ]
+                    if provider_thinking:
+                        offset = len(completed_thinking) - len(provider_thinking)
+                        for index, text in enumerate(provider_thinking):
+                            target = offset + index
+                            if target >= 0 and text and not completed_thinking[target][1]:
+                                thinking_id, _ = completed_thinking[target]
+                                completed_thinking[target] = (thinking_id, text)
+                    result = event.result
+
+        await flush_assistant_delta(force=True)
+        completed_thinking.extend(thinking.values())
+        for thinking_id, text in completed_thinking:
+            await self.repository.finish_thinking(
+                session_id, thinking_id=thinking_id, text=text
+            )
+        if result is None:
+            raise RuntimeError("agent stream ended without a result")
+        return result, assistant_id
+
+
     async def _handle_agent_result(
         self,
         *,
@@ -410,13 +608,16 @@ class AgentRuntime:
         effective: EffectiveRunSettings,
         compacted: bool,
         scope: RunCancelScope,
+        message_id: str,
     ) -> TurnResult:
         # Auto-approve loop for tests / trusted mode
         while isinstance(result.output, DeferredToolRequests) and self.auto_approve_mutations:
             approvals_map = {
                 part.tool_call_id: ToolApproved() for part in result.output.approvals
             }
-            result = await agent.run(
+            result, message_id = await self._run_streaming(
+                session_id=session_id,
+                agent=agent,
                 message_history=result.all_messages(),
                 deferred_tool_results=DeferredToolResults(
                     approvals=cast(
@@ -425,6 +626,8 @@ class AgentRuntime:
                     )
                 ),
                 deps=deps,
+                message_id=message_id,
+                effective=effective,
             )
 
         if scope.is_cancelled():
@@ -463,6 +666,7 @@ class AgentRuntime:
             assistant_text=text,
             model_message_payloads=drafts,
             usage=usage,
+            message_id=message_id,
         )
         return TurnResult(
             start=start,

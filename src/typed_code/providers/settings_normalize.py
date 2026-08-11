@@ -82,7 +82,11 @@ def normalize_settings(
             if key not in omitted:
                 omitted.append(key)
 
-    reasoning = req.reasoning_level
+    reasoning = (
+        req.reasoning_level
+        if req.reasoning_level is not None
+        else profile.default_reasoning_level
+    )
     if reasoning is not None:
         if profile.reasoning_levels and reasoning not in profile.reasoning_levels:
             raise DomainValidationError(

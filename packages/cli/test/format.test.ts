@@ -1,80 +1,132 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import {
-  canSubmit,
-  formatStatusLine,
-  formatTranscriptItem,
-  isRunActive,
-} from "../src/index.ts";
-import { createSessionViewState, type SessionSnapshot } from "@typed-code/sdk";
-import { applySnapshot } from "@typed-code/sdk";
+  applySnapshot,
+  createSessionViewState,
+  type EventSubscription,
+  type SessionSnapshot,
+  type TypedCodeClient,
+} from "@typed-code/sdk";
 
-function snap(phase: SessionSnapshot["phase"] = "idle"): SessionSnapshot {
+import { AppSessionCoordinator } from "../src/app-session.ts";
+import { StatusFooter, formatTokenCount } from "../src/components/status-footer.ts";
+
+function snapshot(): SessionSnapshot {
   return {
     protocol_version: 1,
-    session_id: "s1",
+    session_id: "session-1",
     revision: 1,
-    phase,
-    workspace_path: "/ws",
+    phase: "running",
+    workspace_path: "/workspace",
     provider: "cliproxy",
-    model: "m1",
+    model: "model-1",
     pending_approvals: [],
     transcript: [],
     created_at: "t",
     updated_at: "t",
-    latest_event_sequence: 0,
+    latest_event_sequence: 1,
   };
 }
 
-describe("format helpers", () => {
-  it("formats status line", () => {
-    let view = createSessionViewState();
-    view = applySnapshot(view, snap("idle"));
-    view = {
-      ...view,
-      connection: "live",
-      lastSequence: 3,
-      lastUsage: { total_tokens: 100 },
+function client(): TypedCodeClient {
+  const current = snapshot();
+  const subscription: EventSubscription = { close() {} };
+  return {
+    protocolVersion: 1,
+    baseUrl: "http://test",
+    async getHealth() {
+      return { status: "ok", protocol_version: 1, providers: {}, bash: { ready: true } };
+    },
+    async listModels() {
+      return { models: [] };
+    },
+    async listSessions() {
+      return { sessions: [] };
+    },
+    async createSession() {
+      return { snapshot: current };
+    },
+    async getSession() {
+      return current;
+    },
+    async createTurn() {
+      return { run_id: "run", revision: 2, phase: "running", status: "accepted" };
+    },
+    async abort() {
+      return current;
+    },
+    async decideApproval() {
+      return current;
+    },
+    async updateSessionModel() {
+      return current;
+    },
+    async reloadConfig() {
+      return { reloaded: true, providers: {} };
+    },
+    streamEvents() {
+      return subscription;
+    },
+  };
+}
+
+function coordinator(): AppSessionCoordinator {
+  return new AppSessionCoordinator(client(), {
+    workspace: "/workspace",
+    provider: "cliproxy",
+    model: "model-1",
+    contextBudget: 272_000,
+  });
+}
+
+describe("responsive status footer", () => {
+  it("formats confirmed token counts compactly", () => {
+    assert.equal(formatTokenCount(null), "—");
+    assert.equal(formatTokenCount(999), "999");
+    assert.equal(formatTokenCount(12_345), "12k");
+    assert.equal(formatTokenCount(1_250_000), "1.3m");
+  });
+
+  it("shows an unavailable value for a draft with a known budget", () => {
+    const session = coordinator();
+    const footer = new StatusFooter();
+    footer.setState(session.state);
+
+    const text = stripTerminalSequences(footer.render(80).join("\n"));
+
+    assert.match(text, /draft/);
+    assert.match(text, /ctx —\/272k/);
+  });
+
+  it("retains confirmed usage and labels a running turn as pending", () => {
+    const session = coordinator();
+    session.controller.view = {
+      ...applySnapshot(createSessionViewState(), snapshot()),
+      connection: "reconnecting",
       contextBudget: 272_000,
+      lastUsage: {
+        input_tokens: 31_800,
+        output_tokens: 2_400,
+        total_tokens: 34_200,
+      },
     };
-    const line = formatStatusLine(view);
-    assert.match(line, /typed-code/);
-    assert.match(line, /phase=idle/);
-    assert.match(line, /conn=live/);
-    assert.match(line, /cliproxy\/m1/);
-    assert.match(line, /tokens≈100\/272000/);
-  });
+    session.state = {
+      kind: "attached",
+      draft: session.draft,
+      controller: session.controller,
+    };
+    const footer = new StatusFooter();
+    footer.setState(session.state);
 
-  it("formats transcript items", () => {
-    assert.equal(
-      formatTranscriptItem({
-        type: "user_message",
-        id: "1",
-        created_at: "t",
-        text: "hi",
-      }),
-      "you: hi",
-    );
-    assert.match(
-      formatTranscriptItem({
-        type: "tool_call",
-        id: "2",
-        created_at: "t",
-        tool_name: "bash",
-        summary: "ls",
-        status: "started",
-      }),
-      /tool bash/,
-    );
-  });
+    const wide = stripTerminalSequences(footer.render(120).join("\n"));
+    const narrow = stripTerminalSequences(footer.render(45).join("\n"));
 
-  it("gates submit on idle", () => {
-    let view = applySnapshot(createSessionViewState(), snap("idle"));
-    view = { ...view, connection: "live" };
-    assert.equal(canSubmit(view), true);
-    view = applySnapshot(view, snap("running"));
-    assert.equal(canSubmit(view), false);
-    assert.equal(isRunActive(view), true);
+    assert.match(wide, /reconnecting/);
+    assert.match(wide, /ctx 34k\/272k · 12\.6%/);
+    assert.match(wide, /in 32k · out 2\.4k/);
+    assert.match(wide, /usage pending/);
+    assert.ok(narrow.length < wide.length);
   });
 });

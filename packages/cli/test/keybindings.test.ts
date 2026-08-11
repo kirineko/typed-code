@@ -21,6 +21,18 @@ describe("keybindings", () => {
       "none",
     );
   });
+  it("maps legacy and Kitty Ctrl+T to thinking inspection", () => {
+    for (const data of ["\u0014", "\u001b[116;5u"]) {
+      assert.equal(
+        actionFromKeyData(data, {
+          approvalPending: false,
+          runActive: false,
+        }).type,
+        "toggle_thinking",
+      );
+    }
+  });
+
 
   it("maps y/n when approval pending", () => {
     assert.equal(

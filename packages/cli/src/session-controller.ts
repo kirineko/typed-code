@@ -8,6 +8,7 @@ import {
   createSessionViewState,
   type EventSubscription,
   type ProviderName,
+  type ReasoningLevel,
   type SessionViewState,
   type TypedCodeClient,
   type TypedCodeError,
@@ -67,6 +68,11 @@ export class SessionController {
   private startStream(sessionId: string, after: number): void {
     this.sub = this.client.streamEvents(sessionId, {
       after,
+      onOpen: () => {
+        if (this.view.connection === "live") return;
+        this.view = { ...this.view, connection: "live" };
+        this.emit();
+      },
       onEvent: (event) => {
         this.view = applyEvent(this.view, event);
         this.view = { ...this.view, connection: "live" };
@@ -88,7 +94,10 @@ export class SessionController {
     });
   }
 
-  async submit(prompt: string): Promise<void> {
+  async submit(
+    prompt: string,
+    reasoningLevel: ReasoningLevel | null = null,
+  ): Promise<void> {
     if (!this.sessionId) {
       throw new Error("no session attached");
     }
@@ -103,7 +112,10 @@ export class SessionController {
     this.view = { ...this.view, phase: "running" };
     this.emit("turn submitted");
     try {
-      await this.client.createTurn(this.sessionId, { prompt: text });
+      await this.client.createTurn(this.sessionId, {
+        prompt: text,
+        reasoning_level: reasoningLevel,
+      });
     } catch (error) {
       try {
         const authoritative = await this.client.getSession(this.sessionId);

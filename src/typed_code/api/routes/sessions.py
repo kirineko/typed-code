@@ -22,7 +22,7 @@ from typed_code.protocol.sessions import (
     SessionListResponse,
     SessionSnapshot,
 )
-from typed_code.providers.settings_normalize import ModelSelectionError
+from typed_code.providers.settings_normalize import ModelSelectionError, RunSettingRequest
 from typed_code.service.app_state import AppState
 
 router = APIRouter(tags=["sessions"], dependencies=[Depends(require_bearer)])
@@ -108,7 +108,11 @@ async def create_turn(
         await state.repository.load_session(session_id)
     except DomainNotFound:
         raise
-    return await state.manager.submit_turn(session_id, body.prompt)
+    return await state.manager.submit_turn(
+        session_id,
+        body.prompt,
+        setting_request=RunSettingRequest(reasoning_level=body.reasoning_level),
+    )
 
 
 @router.post("/v1/sessions/{session_id}/abort", response_model=SessionSnapshot)

@@ -1,5 +1,7 @@
 /** Map raw terminal key data to CLI actions. */
 
+import { matchesKey } from "@earendil-works/pi-tui";
+
 export type CliAction =
   | { type: "quit" }
   | { type: "abort" }
@@ -7,9 +9,10 @@ export type CliAction =
   | { type: "reject" }
   | { type: "help" }
   | { type: "redraw" }
+  | { type: "toggle_thinking" }
   | { type: "none" };
 
-/** Conservative key matching without depending on pi-tui matchesKey in pure tests. */
+/** Map terminal input, including Kitty keyboard protocol sequences. */
 export function actionFromKeyData(
   data: string,
   opts: { approvalPending: boolean; runActive: boolean },
@@ -29,6 +32,10 @@ export function actionFromKeyData(
   // Ctrl+L
   if (data === "\u000c") {
     return { type: "redraw" };
+  }
+  // Ctrl+T
+  if (matchesKey(data, "ctrl+t")) {
+    return { type: "toggle_thinking" };
   }
   if (data === "?" || data === "\u001bOP") {
     return { type: "help" };

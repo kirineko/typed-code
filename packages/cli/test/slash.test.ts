@@ -27,10 +27,16 @@ describe("slash routing", () => {
     });
   });
 
-  it("help text lists config and model", () => {
-    const h = slashHelpText();
-    assert.match(h, /\/config deepseek/);
-    assert.match(h, /\/model <n>/);
+  it("help text lists the discoverable command surface", () => {
+    const help = slashHelpText();
+    assert.match(help, /\/config \[deepseek\|cliproxy\]/);
+    assert.match(help, /\/model \[provider\/model\]/);
+    assert.match(help, /\/resume \[--all\|session-prefix\]/);
+    assert.match(help, /\/new/);
+    assert.match(help, /\/status/);
+    assert.match(help, /\/abort/);
+    assert.match(help, /\/keys/);
+    assert.match(help, /\/quit/);
   });
 
   it("keeps credential commands out of history", () => {

@@ -25,22 +25,28 @@ def test_deepseek_profile_stateless_no_previous_response() -> None:
     assert p.tools is True
     assert p.parallel_tool_calls is True
     assert p.context_token_budget == DEEPSEEK_CONTEXT_TOKEN_BUDGET
+    assert p.reasoning_levels == ("none", "low", "high", "max")
+    assert p.default_reasoning_level == "high"
 
 
 def test_cliproxy_profile_per_model() -> None:
-    p = cliproxy_profile("gpt-5.6-sol")
+    p = cliproxy_profile("gpt-5.6-terra")
     assert p.provider is ProviderName.CLIPROXY
-    assert p.model_id == "gpt-5.6-sol"
+    assert p.model_id == "gpt-5.6-terra"
     assert p.supports_previous_response_id is False
     assert p.context_token_budget == OPENAI_FAMILY_CONTEXT_TOKEN_BUDGET
+    assert p.reasoning_levels == ("none", "low", "medium", "high", "xhigh", "max")
+    assert p.default_reasoning_level == "medium"
     caps = p.to_public_capabilities()
     assert caps.text_input is True
     assert caps.image_input is False
 
-
 def test_cliproxy_unknown_model_budget() -> None:
     p = cliproxy_profile("local-llama-custom")
     assert p.context_token_budget == DEFAULT_CONTEXT_TOKEN_BUDGET
+    assert p.reasoning_levels == ()
+    assert p.default_reasoning_level is None
+    assert cliproxy_profile("gpt-image-2").reasoning_levels == ()
 
 
 def test_resolve_context_token_budget_matrix() -> None:

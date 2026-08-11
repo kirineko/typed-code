@@ -43,6 +43,27 @@ class PublishingRepository(SessionRepository):  # type: ignore[misc]
             await self._inner.update_session_model(session_id, **kwargs)
         )
 
+    async def record_assistant_delta(
+        self, session_id: str, **kwargs: Any
+    ) -> PersistResult:
+        return await self._emit(
+            await self._inner.record_assistant_delta(session_id, **kwargs)
+        )
+
+    async def record_thinking_delta(
+        self, session_id: str, **kwargs: Any
+    ) -> PersistResult:
+        return await self._emit(
+            await self._inner.record_thinking_delta(session_id, **kwargs)
+        )
+
+    async def finish_thinking(
+        self, session_id: str, **kwargs: Any
+    ) -> PersistResult:
+        return await self._emit(
+            await self._inner.finish_thinking(session_id, **kwargs)
+        )
+
     async def complete_run(self, session_id: str) -> PersistResult:
         return await self._emit(await self._inner.complete_run(session_id))
 

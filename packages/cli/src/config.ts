@@ -98,14 +98,15 @@ Usage:
 
 Default path:
   - Loads/creates ~/.config/typed-code/credentials.toml (server token auto)
-  - Prompts for a provider key on first run if none is configured
   - Starts local typed-code serve when needed
-  - Opens interactive TUI
+  - Runs secure provider setup in the TUI when required
+  - Opens an unsaved new session for the canonical workspace
+  - Persists the session only after the first non-empty prompt
 
 Options:
-  --workspace <path>     Workspace for new sessions (default: cwd)
-  --session-id <id>      Resume an existing session
-  --new                  Create a new session
+  --workspace <path>     Launch workspace (default: cwd)
+  --session-id <id>      Explicitly resume an existing session
+  --new                  Explicit new draft (also the default)
   --provider <name>      deepseek | cliproxy
   --model <id>           Model id
   --base-url <url>       Advanced: service URL (default http://127.0.0.1:8741)
@@ -114,16 +115,25 @@ Options:
   -h, --help             Show help
 
 In-chat commands:
-  /help                  List commands
-  /config                Configure provider API keys (hot-reload)
-  /model                 Switch model (idle session)
+  /help                  Show command help
+  /model                 Select a model
+  /config                Configure provider credentials
+  /new                   Return to an unsaved launch-workspace draft
+  /resume [--all]        Resume current-project or all-project history
+  /status                Show session, connection, and usage details
+  /abort                 Cancel the active run
+  /keys                  Show keyboard controls
+  /quit                  Quit without cancelling a server-owned run
 
 Keys:
-  Enter                  Submit prompt (when idle)
+  Enter                  Submit prompt
+  Alt/Shift/Ctrl+Enter   Insert newline
+  Tab                    Complete commands, arguments, and paths
   Ctrl+D / Esc           Abort active run
   y / n                  Approve / reject pending approval
+  Ctrl+End               Follow latest output
+  Ctrl+T                 Select thinking / collapse expanded thinking
   Ctrl+C                 Quit
-  ?                      Toggle help in status
 
 Context budgets: DeepSeek 1M · OpenAI-via-CLIProxy 272k · other 128k
 `;

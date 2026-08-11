@@ -18,6 +18,7 @@ class ModelCapabilities(ProtocolModel):
     tools: bool = True
     parallel_tool_calls: bool = True
     reasoning_levels: list[str] = []
+    default_reasoning_level: str | None = None
 
 
 class ModelInfo(ProtocolModel):

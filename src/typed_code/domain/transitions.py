@@ -29,6 +29,7 @@ from typed_code.protocol.events import (
     ApprovalResolvedData,
     ContextCompactedData,
     EventData,
+    MessageAssistantDeltaData,
     MessageAssistantDoneData,
     MessageUserData,
     RunCancelledData,
@@ -37,9 +38,16 @@ from typed_code.protocol.events import (
     RunInterruptedData,
     RunStartedData,
     SessionModelChangedData,
+    ThinkingDeltaData,
+    ThinkingDoneData,
     UsageUpdatedData,
 )
-from typed_code.protocol.transcript import AssistantMessageItem, SystemNoticeItem, UserMessageItem
+from typed_code.protocol.transcript import (
+    AssistantMessageItem,
+    SystemNoticeItem,
+    ThinkingItem,
+    UserMessageItem,
+)
 
 
 @dataclass(frozen=True)
@@ -441,6 +449,86 @@ def request_approval(
         ],
         approvals=[approval],
         updated_run=updated_run,
+    )
+
+
+def record_assistant_delta(
+    session: SessionState,
+    *,
+    message_id: str,
+    delta: str,
+    clock: Clock = utc_now,
+) -> TransitionResult:
+    """Publish one durable assistant stream fragment without changing snapshot content."""
+    run = _require_active_run(session)
+    if not delta:
+        return TransitionResult(session=session)
+    now = isoformat(clock())
+    return TransitionResult(
+        session=replace(session, updated_at=now),
+        events=[
+            EventDraft(
+                type=EventType.MESSAGE_ASSISTANT_DELTA,
+                run_id=run.run_id,
+                timestamp=now,
+                data=MessageAssistantDeltaData(message_id=message_id, delta=delta),
+            )
+        ],
+    )
+
+
+def record_thinking_delta(
+    session: SessionState,
+    *,
+    thinking_id: str,
+    delta: str,
+    clock: Clock = utc_now,
+) -> TransitionResult:
+    """Publish one durable reasoning stream fragment without changing snapshot content."""
+    run = _require_active_run(session)
+    if not delta:
+        return TransitionResult(session=session)
+    now = isoformat(clock())
+    return TransitionResult(
+        session=replace(session, updated_at=now),
+        events=[
+            EventDraft(
+                type=EventType.THINKING_DELTA,
+                run_id=run.run_id,
+                timestamp=now,
+                data=ThinkingDeltaData(thinking_id=thinking_id, delta=delta),
+            )
+        ],
+    )
+
+
+def finish_thinking(
+    session: SessionState,
+    *,
+    thinking_id: str,
+    text: str,
+    clock: Clock = utc_now,
+) -> TransitionResult:
+    """Commit completed reasoning so snapshots and replay converge."""
+    run = _require_active_run(session)
+    now = isoformat(clock())
+    item = ThinkingItem(id=thinking_id, created_at=now, text=text)
+    return TransitionResult(
+        session=replace(
+            session,
+            revision=session.revision + 1,
+            updated_at=now,
+            transcript=[*session.transcript, item],
+        ),
+        events=[
+            EventDraft(
+                type=EventType.THINKING_DONE,
+                run_id=run.run_id,
+                timestamp=now,
+                data=ThinkingDoneData(thinking_id=thinking_id, text=text),
+            )
+        ],
+        transcript_items=[item],
     )
 
 

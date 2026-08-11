@@ -699,6 +699,25 @@
           "prompt": {
             "type": "string",
             "title": "Prompt"
+          },
+          "reasoning_level": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Level"
           }
         },
         "additionalProperties": false,
@@ -783,6 +802,17 @@
             "type": "array",
             "title": "Reasoning Levels",
             "default": []
+          },
+          "default_reasoning_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Reasoning Level"
           }
         },
         "type": "object",

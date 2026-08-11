@@ -1,226 +1,369 @@
-/**
- * Interactive chat application shell on pi-tui (single local entry).
- */
-
 import {
-  Container,
+  CombinedAutocompleteProvider,
   Editor,
+  Loader,
   ProcessTerminal,
   Text,
-  type TUI,
-  TuiMainScreen,
-  type OverlayHandle,
+  TuiAltScreen,
+  VStack,
   matchesKey,
 } from "@earendil-works/pi-tui";
 import {
   PROTOCOL_VERSION,
   createClient,
+  type ModelInfo,
+  type ProviderName,
+  type ReasoningLevel,
   type TypedCodeClient,
 } from "@typed-code/sdk";
 
+import { withTimeout } from "./async.js";
+import { AppSessionCoordinator, type DraftSession } from "./app-session.js";
+import { AppShell } from "./app-shell.js";
+import { CommandRegistry, isSlashCommand, shouldRecordInHistory } from "./commands.js";
+import { ApprovalDialog } from "./components/approval-dialog.js";
+import { InfoDialog } from "./components/info-dialog.js";
 import type { CliFlags } from "./config.js";
-import { StatusBar } from "./components/status-bar.js";
-import { TranscriptView } from "./components/transcript-view.js";
+import {
+  detailedStatus,
+  defaultReasoningLevel,
+  handleThinkingShortcut,
+  openInfo,
+  openModelPicker,
+  openResumePicker,
+  reasoningLevelsFor,
+} from "./interactive-workflows.js";
 import { actionFromKeyData } from "./keybindings.js";
 import {
   ensureLocalCredentials,
   hasAnyProviderKey,
+  modelPreferencePath,
+  readModelPreference,
+  writeModelPreference,
   type LocalCredentials,
+  type ModelPreference,
 } from "./local-config.js";
-import { runProviderKeyOnboarding } from "./onboarding.js";
-import { canSubmit, isRunActive } from "./render/format.js";
+import { ModalCoordinator } from "./modal-coordinator.js";
+import { configureProvider } from "./provider-config.js";
 import {
   ensureLocalService,
   stopOwnedService,
   type ServiceHandle,
 } from "./service-lifecycle.js";
-import { SessionController } from "./session-controller.js";
-import {
-  handleSlashCommand,
-  isSlashCommand,
-  shouldRecordInHistory,
-} from "./slash.js";
-import { SecretPrompt } from "./secret-input.js";
 import { colors, editorTheme } from "./theme.js";
+import { normalizeWorkspace } from "./workspace-sessions.js";
 
 export async function runApp(flags: CliFlags): Promise<number> {
-  // 1) Local credentials + optional onboarding
-  let { creds } = ensureLocalCredentials();
-  if (!hasAnyProviderKey(creds)) {
-    try {
-      creds = await runProviderKeyOnboarding(creds);
-    } catch (err) {
-      console.error(err instanceof Error ? err.message : String(err));
-      return 1;
-    }
-  }
-
-  const token = flags.token.trim() || creds.server_token || "";
+  const local = ensureLocalCredentials();
+  let localCredentials = local.creds;
+  const preferencePath = modelPreferencePath();
+  const modelPreference = readModelPreference(preferencePath);
+  const token = flags.token.trim() || localCredentials.server_token || "";
   if (!token) {
-    console.error("missing server token (credentials.toml or --token)");
+    console.error("missing server token in credentials.toml");
     return 1;
   }
 
-  // 2) Ensure service
-  let service: ServiceHandle;
+  const tui = new TuiAltScreen(new ProcessTerminal());
+  const startupMessage = new Text(colors.bold("typed-code"), 0, 0);
+  const startupLoader = new Loader(
+    tui,
+    colors.cyan,
+    colors.dim,
+    "Starting local service…",
+  );
+  tui.setLayoutRoot(new VStack([startupMessage, startupLoader], { gap: 1 }));
+  tui.start();
+  startupLoader.start();
+
+  let service: ServiceHandle | null = null;
+  const failStartup = async (message: string): Promise<number> => {
+    startupLoader.stop();
+    startupMessage.setText(colors.red(`typed-code startup failed\n\n${message}`));
+    tui.requestRender(true);
+    tui.renderNow(true);
+    tui.stop();
+    if (service) await stopOwnedService(service);
+    return 1;
+  };
+
   try {
-    if (flags.noSpawn) {
-      service = {
-        baseUrl: flags.baseUrl,
-        token,
-        owned: false,
-        child: null,
-      };
-    } else {
-      service = await ensureLocalService({
-        baseUrl: flags.baseUrl,
-        token,
-      });
-    }
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    return 1;
+    service = flags.noSpawn
+      ? {
+          baseUrl: flags.baseUrl,
+          token,
+          owned: false,
+          child: null,
+        }
+      : await ensureLocalService({ baseUrl: flags.baseUrl, token });
+  } catch (error) {
+    return failStartup(errorMessage("service startup failed", error));
   }
 
-  const client = createClient({
-    baseUrl: service.baseUrl,
-    token: service.token,
-  });
-
+  const client = createClient({ baseUrl: service.baseUrl, token: service.token });
   let health;
   try {
-    health = await client.getHealth();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`failed to reach service at ${service.baseUrl}: ${msg}`);
-    if (!service.owned) {
-      console.error("Start the server: uv run typed-code serve");
-    }
-    await stopOwnedService(service);
-    return 1;
+    startupLoader.setMessage("Negotiating service protocol…");
+    health = await withTimeout(client.getHealth(), 8_000, "health negotiation");
+  } catch (error) {
+    return failStartup(errorMessage(`cannot reach ${service.baseUrl}`, error));
   }
   if (health.protocol_version !== PROTOCOL_VERSION) {
-    console.error(
+    return failStartup(
       `protocol mismatch: server=${health.protocol_version} client=${PROTOCOL_VERSION}`,
     );
-    await stopOwnedService(service);
-    return 1;
   }
 
-  const controller = new SessionController(client);
+  const bootstrapModals = new ModalCoordinator(tui);
+  let models: ModelInfo[];
   try {
-    await openSession(controller, client, flags);
-    await refreshContextBudget(controller, client);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`failed to open session: ${msg}`);
-    await stopOwnedService(service);
-    return 1;
+    models = await listModels(client, true);
+  } catch (error) {
+    return failStartup(errorMessage("model availability failed", error));
+  }
+  while (!hasAnyProviderKey(localCredentials) || !availableModels(models).length) {
+    startupLoader.stop();
+    startupMessage.setText(
+      colors.yellow("Provider setup required before the composer can be enabled"),
+    );
+    tui.requestRender();
+    const configured = await configureProvider({
+      tui,
+      modals: bootstrapModals,
+      client,
+      credentials: localCredentials,
+      returnFocus: null,
+    });
+    if (!configured) {
+      return failStartup("provider setup cancelled");
+    }
+    localCredentials = configured;
+    startupLoader.start();
+    startupLoader.setMessage("Refreshing model availability…");
+    try {
+      models = await listModels(client, true);
+    } catch (error) {
+      return failStartup(errorMessage("model availability failed", error));
+    }
   }
 
-  const terminal = new ProcessTerminal();
-  const tui: TUI = new TuiMainScreen(terminal);
+  let workspace;
+  try {
+    startupLoader.setMessage("Resolving workspace…");
+    workspace = await normalizeWorkspace(flags.workspace);
+  } catch (error) {
+    return failStartup(errorMessage("invalid workspace", error));
+  }
 
-  const root = new Container();
-  const status = new StatusBar();
-  const transcript = new TranscriptView();
-  const spacer = new Text("");
-  const editor = new Editor(tui, editorTheme);
+  const selected = selectInitialModel(
+    models,
+    flags,
+    modelPreference,
+    health.default_provider,
+    health.default_model,
+  );
+  if (!selected) {
+    return failStartup("no available model matches the requested provider/model");
+  }
+  const availableReasoning = reasoningLevelsFor(selected);
+  const rememberedReasoning =
+    modelPreference?.provider === selected.provider &&
+    modelPreference.model === selected.model_id &&
+    modelPreference.reasoning_level &&
+    availableReasoning.includes(modelPreference.reasoning_level)
+      ? modelPreference.reasoning_level
+      : null;
+  const reasoningLevel = rememberedReasoning ?? defaultReasoningLevel(selected);
 
-  root.addChild(status);
-  root.addChild(transcript);
-  root.addChild(spacer);
-  root.addChild(editor);
-  tui.addChild(root);
-  tui.setFocus(editor);
-
-  const refresh = (notice?: string) => {
-    status.setView(controller.view, notice);
-    transcript.setView(controller.view);
-    editor.disableSubmit = !canSubmit(controller.view);
-    tui.requestRender();
+  const draft: DraftSession = {
+    workspace: workspace.canonicalPath,
+    provider: selected.provider,
+    model: selected.model_id,
+    contextBudget: selected.context_token_budget ?? null,
+    reasoningLevel,
   };
-
-  controller.onView((view, notice) => {
-    status.setView(view, notice);
-    transcript.setView(view);
-    editor.disableSubmit = !canSubmit(view);
-    tui.requestRender();
-  });
-  refresh("ready · /help for commands");
-
-  let localCreds: LocalCredentials = creds;
-
-  let slashBusy = false;
-  editor.onSubmit = (text) => {
-    void (async () => {
-      if (slashBusy) {
-        return;
-      }
-      try {
-        if (isSlashCommand(text)) {
-          slashBusy = true;
-          editor.disableSubmit = true;
-          if (shouldRecordInHistory(text)) {
-            editor.addToHistory(text);
-          }
-          editor.setText("");
-          try {
-            await handleSlashCommand({
-              text,
-              client,
-              controller,
-              creds: localCreds,
-              onCreds: (c) => {
-                localCreds = c;
-              },
-              setNotice: (msg) => {
-                status.setNotice(msg);
-                tui.requestRender();
-              },
-              promptProviderKey: (provider) =>
-                promptProviderKey(tui, editor, provider),
-            });
-            await refreshContextBudget(controller, client);
-          } finally {
-            slashBusy = false;
-            editor.disableSubmit = !canSubmit(controller.view);
-            tui.setFocus(editor);
-            refresh();
-          }
-          return;
-        }
-        await controller.submit(text);
-        editor.addToHistory(text);
-        editor.setText("");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        status.setNotice(msg);
-        slashBusy = false;
-        tui.setFocus(editor);
-        tui.requestRender();
-      }
-    })();
-  };
+  const session = new AppSessionCoordinator(client, draft);
+  if (flags.sessionId) {
+    try {
+      await session.resume(flags.sessionId);
+    } catch (error) {
+      return failStartup(errorMessage("explicit session resume failed", error));
+    }
+  }
+  const editor = new Editor(tui, editorTheme, { paddingX: 1 });
+  const shell = new AppShell(tui, editor);
+  startupLoader.stop();
 
   let exited = false;
+  let registry: CommandRegistry | null = null;
+  let approvalPresented: string | null = null;
+  let budgetLookupKey = "";
+
   const quit = () => {
-    if (exited) {
-      return;
-    }
+    if (exited) return;
     exited = true;
-    controller.dispose();
+    session.dispose();
     try {
       tui.stop();
-    } catch {
-      // ignore
+    } finally {
+      process.removeListener("SIGINT", onSignal);
+      process.removeListener("SIGTERM", onSignal);
     }
-    void stopOwnedService(service).catch((error) => {
-      console.error(
-        `failed to stop local service: ${error instanceof Error ? error.message : String(error)}`,
+    if (service) {
+      void stopOwnedService(service).catch((error: unknown) => {
+        console.error(errorMessage("failed to stop local service", error));
+        process.exitCode = 1;
+      });
+    }
+  };
+  const onSignal = () => quit();
+
+  const commandRuntime = {
+    client,
+    session,
+    openHelp() {
+      openInfo(shell, "Commands", registry?.helpText() ?? "Commands unavailable");
+    },
+    openConfig(provider?: ProviderName) {
+      void configureProvider({
+        tui,
+        modals: shell.modals,
+        client,
+        credentials: localCredentials,
+        returnFocus: shell.editor,
+        ...(provider ? { provider } : {}),
+      }).then((configured) => {
+        if (!configured) return;
+        localCredentials = configured;
+        shell.flash("Configuration saved and activated");
+        void refreshBudget(session, client, true);
+      });
+    },
+    async openModelPicker() {
+      await openModelPicker(shell, session, client, ({ model, reasoningLevel }) => {
+        writeModelPreference(preferencePath, {
+          provider: model.provider,
+          model: model.model_id,
+          ...(reasoningLevel ? { reasoning_level: reasoningLevel } : {}),
+        });
+      });
+    },
+    rememberModel(
+      provider: ProviderName,
+      model: string,
+      reasoningLevel: ReasoningLevel | null,
+    ) {
+      writeModelPreference(preferencePath, {
+        provider,
+        model,
+        ...(reasoningLevel ? { reasoning_level: reasoningLevel } : {}),
+      });
+    },
+    async openResumePicker(allProjects: boolean) {
+      await openResumePicker(shell, session, client, allProjects);
+    },
+    openStatus() {
+      openInfo(shell, "Session status", detailedStatus(session));
+    },
+    openKeys() {
+      openInfo(
+        shell,
+        "Keyboard controls",
+        [
+          "Enter submit",
+          "Alt/Shift/Ctrl+Enter newline",
+          "Tab complete command or path",
+          "Esc/Ctrl+D abort active run",
+          "y/n approve or reject",
+          "Ctrl+End latest output",
+          "Ctrl+T inspect selected thinking / collapse expanded thinking",
+          "Ctrl+L redraw",
+          "Ctrl+C quit without cancelling the server run",
+        ].join("\n"),
       );
-      process.exitCode = 1;
+    },
+    quit,
+    flash(message: string) {
+      shell.flash(message);
+    },
+  };
+  registry = new CommandRegistry(commandRuntime);
+  editor.setAutocompleteProvider(
+    new CombinedAutocompleteProvider(registry.slashCommands(), workspace.canonicalPath),
+  );
+
+  const presentApproval = () => {
+    const pending = session.view?.snapshot?.pending_approvals[0];
+    if (!pending) {
+      approvalPresented = null;
+      return;
+    }
+    if (approvalPresented === pending.approval_id || shell.modals.isOpen) return;
+    approvalPresented = pending.approval_id;
+    const dialog = new ApprovalDialog(
+      pending,
+      async (decision) => {
+        if (decision === "approve") {
+          await session.controller.approve();
+        } else {
+          await session.controller.reject();
+        }
+        shell.modals.close();
+      },
+      () => shell.modals.close(),
+      () => shell.requestRender(),
+    );
+    shell.modals.show(dialog, shell.editor, {
+      width: "62%",
+      minWidth: 48,
+      maxHeight: 16,
+      margin: 1,
     });
+  };
+
+  session.onState((state) => {
+    shell.sync(state);
+    presentApproval();
+    if (state.kind === "attached") {
+      const snapshot = state.controller.view.snapshot;
+      const lookupKey = snapshot ? `${snapshot.provider}/${snapshot.model}` : "";
+      if (lookupKey && lookupKey !== budgetLookupKey) {
+        budgetLookupKey = lookupKey;
+        void refreshBudget(session, client, false);
+      }
+    }
+  });
+
+  let commandBusy = false;
+  editor.onSubmit = (text) => {
+    void (async () => {
+      if (commandBusy) return;
+      if (isSlashCommand(text)) {
+        commandBusy = true;
+        editor.disableSubmit = true;
+        if (shouldRecordInHistory(text)) editor.addToHistory(text);
+        editor.setText("");
+        try {
+          await registry?.execute(text);
+        } catch (error) {
+          shell.flash(errorMessage("command failed", error));
+        } finally {
+          commandBusy = false;
+          tui.setFocus(editor);
+          shell.sync(session.state);
+        }
+        return;
+      }
+
+      try {
+        await session.submit(text);
+        editor.addToHistory(text);
+        editor.setText("");
+      } catch (error) {
+        shell.flash(errorMessage("submit failed", error), 5000);
+        shell.sync(session.state);
+      }
+    })();
   };
 
   tui.addInputListener((data) => {
@@ -228,165 +371,129 @@ export async function runApp(flags: CliFlags): Promise<number> {
       quit();
       return { consume: true };
     }
+    if (matchesKey(data, "ctrl+end")) {
+      shell.scrollToEnd();
+      return { consume: true };
+    }
+    if (shell.modals.isOpen) return undefined;
 
+    const view = session.view;
     const action = actionFromKeyData(data, {
-      approvalPending: (controller.view.snapshot?.pending_approvals.length ?? 0) > 0,
-      runActive: isRunActive(controller.view),
+      approvalPending: (view?.snapshot?.pending_approvals.length ?? 0) > 0,
+      runActive: view?.phase === "running" || view?.phase === "awaiting_approval",
     });
-
     switch (action.type) {
       case "quit":
         quit();
         return { consume: true };
       case "abort":
-        void controller.abort().catch((err) => {
-          status.setNotice(err instanceof Error ? err.message : String(err));
-          tui.requestRender();
-        });
+        shell.sync(session.state, { cancelling: true });
+        void session.controller.abort().catch((error: unknown) =>
+          shell.flash(errorMessage("abort failed", error)),
+        );
         return { consume: true };
       case "approve":
-        void controller.approve().catch((err) => {
-          status.setNotice(err instanceof Error ? err.message : String(err));
-          tui.requestRender();
-        });
+        void session.controller.approve().catch((error: unknown) =>
+          shell.flash(errorMessage("approval failed", error)),
+        );
         return { consume: true };
       case "reject":
-        void controller.reject().catch((err) => {
-          status.setNotice(err instanceof Error ? err.message : String(err));
-          tui.requestRender();
-        });
+        void session.controller.reject().catch((error: unknown) =>
+          shell.flash(errorMessage("rejection failed", error)),
+        );
         return { consume: true };
       case "help":
-        status.toggleHelp();
-        tui.requestRender();
+        if (editor.getText().length > 0 && data === "?") return undefined;
+        commandRuntime.openHelp();
+        return { consume: true };
+      case "toggle_thinking":
+        if (!handleThinkingShortcut(shell)) {
+          shell.flash("No completed thinking block to inspect");
+        }
         return { consume: true };
       case "redraw":
-        tui.requestRender();
+        tui.requestRender(true);
         return { consume: true };
-      default:
+      case "none":
         return undefined;
     }
   });
 
-  const onSignal = () => quit();
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
-
-  tui.start();
+  shell.sync(session.state);
+  shell.flash("New session · /help commands · /resume history");
   return 0;
 }
 
-function promptProviderKey(
-  tui: TUI,
-  editor: Editor,
-  provider: "deepseek" | "cliproxy",
-): Promise<string | null> {
-  const { promise, resolve } = Promise.withResolvers<string | null>();
-  let settled = false;
-  let handle: OverlayHandle;
-  const finish = (value: string | null) => {
-    if (settled) return;
-    settled = true;
-    prompt.clear();
-    handle.hide();
-    tui.setFocus(editor);
-    tui.requestRender();
-    resolve(value);
-  };
-  const prompt = new SecretPrompt(
-    `Enter ${provider} API key (masked · Esc cancels)`,
-    (value) => finish(value.trim() || null),
-    () => finish(null),
-  );
-  handle = tui.showOverlay(prompt, {
-    anchor: "center",
-    width: "70%",
-    minWidth: 40,
-    maxHeight: 4,
-  });
-  handle.focus();
-  tui.requestRender();
-  return promise;
-}
-
-
-async function refreshContextBudget(
-  controller: SessionController,
+async function refreshBudget(
+  session: AppSessionCoordinator,
   client: TypedCodeClient,
+  refresh: boolean,
 ): Promise<void> {
-  const snap = controller.view.snapshot;
-  if (!snap) {
-    return;
-  }
+  const snapshot = session.view?.snapshot;
+  const provider = snapshot?.provider ?? session.draft.provider;
+  const model = snapshot?.model ?? session.draft.model;
   try {
-    const models = await client.listModels();
-    const match = models.models.find(
-      (m) => m.provider === snap.provider && m.model_id === snap.model,
+    const models = (await withTimeout(client.listModels({ refresh }), 8_000, "model refresh")).models;
+    const selected = models.find(
+      (item) => item.provider === provider && item.model_id === model,
     );
-    const budget = match?.context_token_budget ?? null;
-    controller.view = { ...controller.view, contextBudget: budget };
+    session.setContextBudget(selected?.context_token_budget ?? null);
   } catch {
-    // ignore catalog errors for status display
+    session.setContextBudget(null);
   }
 }
 
-async function openSession(
-  controller: SessionController,
-  client: TypedCodeClient,
+export function selectInitialModel(
+  models: readonly ModelInfo[],
   flags: CliFlags,
-): Promise<void> {
-  if (flags.sessionId) {
-    await controller.attach(flags.sessionId);
-    return;
+  preference: ModelPreference | null,
+  defaultProvider?: string,
+  defaultModel?: string,
+): ModelInfo | undefined {
+  const available = availableModels(models);
+  if (flags.provider || flags.model) {
+    return available.find(
+      (model) =>
+        (flags.provider === undefined || model.provider === flags.provider) &&
+        (flags.model === undefined || model.model_id === flags.model),
+    );
   }
-  if (flags.createNew || !flags.sessionId) {
-    if (!flags.createNew) {
-      const listed = await client.listSessions();
-      if (listed.sessions.length > 0) {
-        const picked = await pickSessionInteractively(listed.sessions);
-        if (picked) {
-          await controller.attach(picked);
-          return;
-        }
-      }
-    }
-    const createOpts: {
-      workspace: string;
-      provider?: "deepseek" | "cliproxy";
-      model?: string;
-    } = { workspace: flags.workspace };
-    if (flags.provider) createOpts.provider = flags.provider;
-    if (flags.model) createOpts.model = flags.model;
-    await controller.create(createOpts);
+  if (preference) {
+    const remembered = available.find(
+      (model) =>
+        model.provider === preference.provider && model.model_id === preference.model,
+    );
+    if (remembered) return remembered;
   }
+  const deepseek = available.find(
+    (model) =>
+      model.provider === "deepseek" && model.model_id === "deepseek-v4-flash",
+  );
+  if (deepseek) return deepseek;
+  return (
+    available.find(
+      (model) =>
+        model.provider === defaultProvider && model.model_id === defaultModel,
+    ) ?? available[0]
+  );
 }
 
-async function pickSessionInteractively(
-  sessions: { session_id: string; model: string; phase: string; updated_at: string }[],
-): Promise<string | null> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return null;
-  }
-  const { createInterface } = await import("node:readline/promises");
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    console.log("Sessions (Enter empty to create new):");
-    sessions.slice(0, 20).forEach((s, i) => {
-      console.log(
-        `  [${i}] ${s.session_id.slice(0, 8)}…  ${s.model}  ${s.phase}  ${s.updated_at}`,
-      );
-    });
-    const answer = (await rl.question("Select index (or empty): ")).trim();
-    if (!answer) {
-      return null;
-    }
-    const idx = Number(answer);
-    if (!Number.isInteger(idx) || idx < 0 || idx >= sessions.length) {
-      console.log("invalid selection; creating new session");
-      return null;
-    }
-    return sessions[idx]?.session_id ?? null;
-  } finally {
-    rl.close();
-  }
+function availableModels(models: readonly ModelInfo[]): ModelInfo[] {
+  return models.filter((model) => model.availability === "available");
+}
+
+async function listModels(
+  client: TypedCodeClient,
+  refresh: boolean,
+): Promise<ModelInfo[]> {
+  return (
+    await withTimeout(client.listModels({ refresh }), 8_000, "model availability")
+  ).models;
+}
+
+
+function errorMessage(prefix: string, error: unknown): string {
+  return `${prefix}: ${error instanceof Error ? error.message : String(error)}`;
 }

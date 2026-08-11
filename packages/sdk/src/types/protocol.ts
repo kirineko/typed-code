@@ -17,6 +17,7 @@ export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export type ApprovalDecision = "approve" | "reject";
 
 export type ProviderName = "deepseek" | "cliproxy";
+export type ReasoningLevel = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type ProviderAvailability = "available" | "missing_credentials";
 
@@ -66,6 +67,7 @@ export interface ModelCapabilities {
   tools: boolean;
   parallel_tool_calls: boolean;
   reasoning_levels: string[];
+  default_reasoning_level?: ReasoningLevel | null;
 }
 
 export interface ModelInfo {
@@ -99,6 +101,7 @@ export interface CreateSessionRequest {
 
 export interface CreateTurnRequest {
   prompt: string;
+  reasoning_level?: ReasoningLevel | null;
 }
 
 export interface ApprovalDecisionRequest {

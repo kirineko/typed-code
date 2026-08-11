@@ -12,6 +12,9 @@ HistoryStrategy = Literal["stateless_full_replay"]
 SettingPolicy = Literal["omit", "reject"]
 
 DEEPSEEK_MODEL_ID = "deepseek-v4-flash"
+CLIPROXY_DEFAULT_MODEL_ID = "gpt-5.6-terra"
+DEEPSEEK_REASONING_LEVELS = ("none", "low", "high", "max")
+OPENAI_REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh", "max")
 
 # Product context budgets (compaction + public model metadata).
 DEEPSEEK_CONTEXT_TOKEN_BUDGET = 1_000_000
@@ -27,6 +30,10 @@ def is_openai_family_model_id(model_id: str) -> bool:
     return mid.startswith("gpt-") or mid.startswith("o1") or mid.startswith("o3") or mid.startswith(
         "o4"
     )
+
+def is_openai_reasoning_model_id(model_id: str) -> bool:
+    mid = model_id.strip().lower()
+    return is_openai_family_model_id(mid) and not mid.startswith("gpt-image-")
 
 
 def resolve_context_token_budget(provider: ProviderName, model_id: str) -> int:
@@ -54,6 +61,7 @@ class ProviderProfile:
     parallel_tool_calls: bool
     tool_choice_modes: frozenset[str]
     reasoning_levels: tuple[str, ...]
+    default_reasoning_level: str | None
     context_token_budget: int
     max_output_tokens: int | None
     # Settings keys that must never be forwarded as requested
@@ -68,6 +76,7 @@ class ProviderProfile:
             tools=self.tools,
             parallel_tool_calls=self.parallel_tool_calls,
             reasoning_levels=list(self.reasoning_levels),
+            default_reasoning_level=self.default_reasoning_level,
         )
 
 
@@ -83,7 +92,8 @@ DEEPSEEK_PROFILE = ProviderProfile(
     tools=True,
     parallel_tool_calls=True,
     tool_choice_modes=frozenset({"auto", "none"}),
-    reasoning_levels=(),
+    reasoning_levels=DEEPSEEK_REASONING_LEVELS,
+    default_reasoning_level="high",
     context_token_budget=DEEPSEEK_CONTEXT_TOKEN_BUDGET,
     max_output_tokens=8_192,
     omit_settings=frozenset(
@@ -111,7 +121,12 @@ def cliproxy_profile(model_id: str) -> ProviderProfile:
         tools=True,
         parallel_tool_calls=True,
         tool_choice_modes=frozenset({"auto", "none", "required"}),
-        reasoning_levels=(),
+        reasoning_levels=(
+            OPENAI_REASONING_LEVELS if is_openai_reasoning_model_id(model_id) else ()
+        ),
+        default_reasoning_level=(
+            "medium" if is_openai_reasoning_model_id(model_id) else None
+        ),
         context_token_budget=resolve_context_token_budget(
             ProviderName.CLIPROXY, model_id
         ),
