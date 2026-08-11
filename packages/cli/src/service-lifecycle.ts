@@ -111,7 +111,7 @@ export async function stopOwnedService(handle: ServiceHandle): Promise<void> {
     return;
   }
   const child = handle.child;
-  if (child.exitCode !== null) {
+  if (hasExited(child)) {
     return;
   }
   try {
@@ -134,7 +134,7 @@ async function waitForExit(
   child: ChildProcess,
   timeoutMs: number,
 ): Promise<boolean> {
-  if (child.exitCode !== null) {
+  if (hasExited(child)) {
     return true;
   }
   const { promise, resolve } = Promise.withResolvers<boolean>();
@@ -144,8 +144,13 @@ async function waitForExit(
   const exited = await promise;
   clearTimeout(timer);
   child.removeListener("exit", onExit);
-  return exited || child.exitCode !== null;
+  return exited || hasExited(child);
 }
+
+function hasExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
 
 function sleep(ms: number): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
