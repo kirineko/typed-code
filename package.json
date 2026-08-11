@@ -1,0 +1,17 @@
+{
+  "name": "typed-code",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/sdk",
+    "packages/cli"
+  ],
+  "scripts": {
+    "build": "npm run build -w @typed-code/sdk && npm run build -w @typed-code/cli",
+    "check": "npm run build && npm run check -w @typed-code/sdk && npm run check -w @typed-code/cli",
+    "test:unit": "npm run build -w @typed-code/sdk && npm run test -w @typed-code/sdk && npm run test -w @typed-code/cli"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

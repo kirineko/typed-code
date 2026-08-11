@@ -1,0 +1,1287 @@
+{
+  "$defs": {
+    "ApprovalDecision": {
+      "enum": [
+        "approve",
+        "reject"
+      ],
+      "title": "ApprovalDecision",
+      "type": "string"
+    },
+    "ApprovalRequestedData": {
+      "properties": {
+        "type": {
+          "const": "approval.requested",
+          "default": "approval.requested",
+          "title": "Type",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/ApprovalSummary"
+        }
+      },
+      "required": [
+        "approval"
+      ],
+      "title": "ApprovalRequestedData",
+      "type": "object"
+    },
+    "ApprovalResolvedData": {
+      "properties": {
+        "type": {
+          "const": "approval.resolved",
+          "default": "approval.resolved",
+          "title": "Type",
+          "type": "string"
+        },
+        "approval_id": {
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/ApprovalDecision"
+        }
+      },
+      "required": [
+        "approval_id",
+        "decision"
+      ],
+      "title": "ApprovalResolvedData",
+      "type": "object"
+    },
+    "ApprovalStatus": {
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "cancelled"
+      ],
+      "title": "ApprovalStatus",
+      "type": "string"
+    },
+    "ApprovalSummary": {
+      "properties": {
+        "approval_id": {
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ApprovalStatus"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "approval_id",
+        "run_id",
+        "tool_name",
+        "summary",
+        "status",
+        "created_at"
+      ],
+      "title": "ApprovalSummary",
+      "type": "object"
+    },
+    "AssistantMessageItem": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "type": {
+          "const": "assistant_message",
+          "default": "assistant_message",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "text"
+      ],
+      "title": "AssistantMessageItem",
+      "type": "object"
+    },
+    "ContextCompactedData": {
+      "properties": {
+        "type": {
+          "const": "context.compacted",
+          "default": "context.compacted",
+          "title": "Type",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "removed_item_count": {
+          "default": 0,
+          "title": "Removed Item Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "ContextCompactedData",
+      "type": "object"
+    },
+    "ErrorCode": {
+      "enum": [
+        "validation_error",
+        "protocol_version_error",
+        "unauthorized",
+        "not_found",
+        "conflict",
+        "missing_credentials",
+        "model_selection_error",
+        "internal_error",
+        "run_failed",
+        "configuration_error"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "ErrorEventData": {
+      "properties": {
+        "type": {
+          "const": "error",
+          "default": "error",
+          "title": "Type",
+          "type": "string"
+        },
+        "error": {
+          "$ref": "#/$defs/StructuredError"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "title": "ErrorEventData",
+      "type": "object"
+    },
+    "EventType": {
+      "enum": [
+        "session.snapshot",
+        "session.model_changed",
+        "run.started",
+        "run.completed",
+        "run.failed",
+        "run.cancelled",
+        "run.interrupted",
+        "message.user",
+        "message.assistant.delta",
+        "message.assistant.done",
+        "thinking.delta",
+        "thinking.done",
+        "tool.started",
+        "tool.updated",
+        "tool.completed",
+        "tool.failed",
+        "approval.requested",
+        "approval.resolved",
+        "usage.updated",
+        "context.compacted",
+        "error",
+        "replay.reset"
+      ],
+      "title": "EventType",
+      "type": "string"
+    },
+    "MessageAssistantDeltaData": {
+      "properties": {
+        "type": {
+          "const": "message.assistant.delta",
+          "default": "message.assistant.delta",
+          "title": "Type",
+          "type": "string"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "delta": {
+          "title": "Delta",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "delta"
+      ],
+      "title": "MessageAssistantDeltaData",
+      "type": "object"
+    },
+    "MessageAssistantDoneData": {
+      "properties": {
+        "type": {
+          "const": "message.assistant.done",
+          "default": "message.assistant.done",
+          "title": "Type",
+          "type": "string"
+        },
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "text"
+      ],
+      "title": "MessageAssistantDoneData",
+      "type": "object"
+    },
+    "MessageUserData": {
+      "properties": {
+        "type": {
+          "const": "message.user",
+          "default": "message.user",
+          "title": "Type",
+          "type": "string"
+        },
+        "item": {
+          "discriminator": {
+            "mapping": {
+              "assistant_message": "#/$defs/AssistantMessageItem",
+              "system_notice": "#/$defs/SystemNoticeItem",
+              "thinking": "#/$defs/ThinkingItem",
+              "tool_call": "#/$defs/ToolCallItem",
+              "tool_result": "#/$defs/ToolResultItem",
+              "user_message": "#/$defs/UserMessageItem"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/UserMessageItem"
+            },
+            {
+              "$ref": "#/$defs/AssistantMessageItem"
+            },
+            {
+              "$ref": "#/$defs/ThinkingItem"
+            },
+            {
+              "$ref": "#/$defs/ToolCallItem"
+            },
+            {
+              "$ref": "#/$defs/ToolResultItem"
+            },
+            {
+              "$ref": "#/$defs/SystemNoticeItem"
+            }
+          ],
+          "title": "Item"
+        }
+      },
+      "required": [
+        "item"
+      ],
+      "title": "MessageUserData",
+      "type": "object"
+    },
+    "ProviderName": {
+      "enum": [
+        "deepseek",
+        "cliproxy"
+      ],
+      "title": "ProviderName",
+      "type": "string"
+    },
+    "ReplayResetData": {
+      "properties": {
+        "type": {
+          "const": "replay.reset",
+          "default": "replay.reset",
+          "title": "Type",
+          "type": "string"
+        },
+        "reason": {
+          "default": "event_window_expired",
+          "title": "Reason",
+          "type": "string"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/SessionSnapshot"
+        }
+      },
+      "required": [
+        "snapshot"
+      ],
+      "title": "ReplayResetData",
+      "type": "object"
+    },
+    "RunCancelledData": {
+      "properties": {
+        "type": {
+          "const": "run.cancelled",
+          "default": "run.cancelled",
+          "title": "Type",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "RunCancelledData",
+      "type": "object"
+    },
+    "RunCompletedData": {
+      "properties": {
+        "type": {
+          "const": "run.completed",
+          "default": "run.completed",
+          "title": "Type",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "RunCompletedData",
+      "type": "object"
+    },
+    "RunFailedData": {
+      "properties": {
+        "type": {
+          "const": "run.failed",
+          "default": "run.failed",
+          "title": "Type",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "error": {
+          "$ref": "#/$defs/StructuredError"
+        }
+      },
+      "required": [
+        "run_id",
+        "error"
+      ],
+      "title": "RunFailedData",
+      "type": "object"
+    },
+    "RunInterruptedData": {
+      "properties": {
+        "type": {
+          "const": "run.interrupted",
+          "default": "run.interrupted",
+          "title": "Type",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "title": "RunInterruptedData",
+      "type": "object"
+    },
+    "RunStartedData": {
+      "properties": {
+        "type": {
+          "const": "run.started",
+          "default": "run.started",
+          "title": "Type",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "prompt_preview": {
+          "title": "Prompt Preview",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "prompt_preview"
+      ],
+      "title": "RunStartedData",
+      "type": "object"
+    },
+    "RunStatus": {
+      "enum": [
+        "running",
+        "awaiting_approval",
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "RunSummary": {
+      "properties": {
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus"
+        },
+        "prompt_preview": {
+          "title": "Prompt Preview",
+          "type": "string"
+        },
+        "started_at": {
+          "title": "Started At",
+          "type": "string"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ended At"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Message"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "prompt_preview",
+        "started_at"
+      ],
+      "title": "RunSummary",
+      "type": "object"
+    },
+    "SessionModelChangedData": {
+      "properties": {
+        "type": {
+          "const": "session.model_changed",
+          "default": "session.model_changed",
+          "title": "Type",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderName"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "title": "SessionModelChangedData",
+      "type": "object"
+    },
+    "SessionPhase": {
+      "enum": [
+        "idle",
+        "running",
+        "awaiting_approval"
+      ],
+      "title": "SessionPhase",
+      "type": "string"
+    },
+    "SessionSnapshot": {
+      "properties": {
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "phase": {
+          "$ref": "#/$defs/SessionPhase"
+        },
+        "workspace_path": {
+          "title": "Workspace Path",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderName"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "active_run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pending_approvals": {
+          "items": {
+            "$ref": "#/$defs/ApprovalSummary"
+          },
+          "title": "Pending Approvals",
+          "type": "array"
+        },
+        "transcript": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "assistant_message": "#/$defs/AssistantMessageItem",
+                "system_notice": "#/$defs/SystemNoticeItem",
+                "thinking": "#/$defs/ThinkingItem",
+                "tool_call": "#/$defs/ToolCallItem",
+                "tool_result": "#/$defs/ToolResultItem",
+                "user_message": "#/$defs/UserMessageItem"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/UserMessageItem"
+              },
+              {
+                "$ref": "#/$defs/AssistantMessageItem"
+              },
+              {
+                "$ref": "#/$defs/ThinkingItem"
+              },
+              {
+                "$ref": "#/$defs/ToolCallItem"
+              },
+              {
+                "$ref": "#/$defs/ToolResultItem"
+              },
+              {
+                "$ref": "#/$defs/SystemNoticeItem"
+              }
+            ]
+          },
+          "title": "Transcript",
+          "type": "array"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "string"
+        },
+        "latest_event_sequence": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Latest Event Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "session_id",
+        "revision",
+        "phase",
+        "workspace_path",
+        "provider",
+        "model",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "SessionSnapshot",
+      "type": "object"
+    },
+    "SessionSnapshotData": {
+      "properties": {
+        "type": {
+          "const": "session.snapshot",
+          "default": "session.snapshot",
+          "title": "Type",
+          "type": "string"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/SessionSnapshot"
+        }
+      },
+      "required": [
+        "snapshot"
+      ],
+      "title": "SessionSnapshotData",
+      "type": "object"
+    },
+    "StructuredError": {
+      "description": "Sanitized error returned to clients (never includes secrets).",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "details": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Details"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "StructuredError",
+      "type": "object"
+    },
+    "SystemNoticeItem": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "type": {
+          "const": "system_notice",
+          "default": "system_notice",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "text"
+      ],
+      "title": "SystemNoticeItem",
+      "type": "object"
+    },
+    "ThinkingDeltaData": {
+      "properties": {
+        "type": {
+          "const": "thinking.delta",
+          "default": "thinking.delta",
+          "title": "Type",
+          "type": "string"
+        },
+        "thinking_id": {
+          "title": "Thinking Id",
+          "type": "string"
+        },
+        "delta": {
+          "title": "Delta",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thinking_id",
+        "delta"
+      ],
+      "title": "ThinkingDeltaData",
+      "type": "object"
+    },
+    "ThinkingDoneData": {
+      "properties": {
+        "type": {
+          "const": "thinking.done",
+          "default": "thinking.done",
+          "title": "Type",
+          "type": "string"
+        },
+        "thinking_id": {
+          "title": "Thinking Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thinking_id",
+        "text"
+      ],
+      "title": "ThinkingDoneData",
+      "type": "object"
+    },
+    "ThinkingItem": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "type": {
+          "const": "thinking",
+          "default": "thinking",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "text"
+      ],
+      "title": "ThinkingItem",
+      "type": "object"
+    },
+    "ToolCallItem": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_call",
+          "default": "tool_call",
+          "title": "Type",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ToolCallStatus"
+        },
+        "args_preview": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Args Preview"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "tool_name",
+        "summary",
+        "status"
+      ],
+      "title": "ToolCallItem",
+      "type": "object"
+    },
+    "ToolCallStatus": {
+      "enum": [
+        "started",
+        "running",
+        "completed",
+        "failed",
+        "denied"
+      ],
+      "title": "ToolCallStatus",
+      "type": "string"
+    },
+    "ToolCompletedData": {
+      "properties": {
+        "type": {
+          "const": "tool.completed",
+          "default": "tool.completed",
+          "title": "Type",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "ok": {
+          "default": true,
+          "title": "Ok",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "tool_call_id",
+        "summary"
+      ],
+      "title": "ToolCompletedData",
+      "type": "object"
+    },
+    "ToolFailedData": {
+      "properties": {
+        "type": {
+          "const": "tool.failed",
+          "default": "tool.failed",
+          "title": "Type",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_call_id",
+        "summary"
+      ],
+      "title": "ToolFailedData",
+      "type": "object"
+    },
+    "ToolResultItem": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_result",
+          "default": "tool_result",
+          "title": "Type",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "tool_call_id",
+        "ok",
+        "summary"
+      ],
+      "title": "ToolResultItem",
+      "type": "object"
+    },
+    "ToolStartedData": {
+      "properties": {
+        "type": {
+          "const": "tool.started",
+          "default": "tool.started",
+          "title": "Type",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ToolCallStatus",
+          "default": "started"
+        }
+      },
+      "required": [
+        "tool_call_id",
+        "tool_name",
+        "summary"
+      ],
+      "title": "ToolStartedData",
+      "type": "object"
+    },
+    "ToolUpdatedData": {
+      "properties": {
+        "type": {
+          "const": "tool.updated",
+          "default": "tool.updated",
+          "title": "Type",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ToolCallStatus"
+        }
+      },
+      "required": [
+        "tool_call_id",
+        "summary",
+        "status"
+      ],
+      "title": "ToolUpdatedData",
+      "type": "object"
+    },
+    "UsageUpdatedData": {
+      "properties": {
+        "type": {
+          "const": "usage.updated",
+          "default": "usage.updated",
+          "title": "Type",
+          "type": "string"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tokens"
+        },
+        "details": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Details"
+        }
+      },
+      "title": "UsageUpdatedData",
+      "type": "object"
+    },
+    "UserMessageItem": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "type": {
+          "const": "user_message",
+          "default": "user_message",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "text"
+      ],
+      "title": "UserMessageItem",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "protocol_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Protocol Version",
+      "type": "integer"
+    },
+    "sequence": {
+      "minimum": 1,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "type": {
+      "$ref": "#/$defs/EventType"
+    },
+    "data": {
+      "discriminator": {
+        "mapping": {
+          "approval.requested": "#/$defs/ApprovalRequestedData",
+          "approval.resolved": "#/$defs/ApprovalResolvedData",
+          "context.compacted": "#/$defs/ContextCompactedData",
+          "error": "#/$defs/ErrorEventData",
+          "message.assistant.delta": "#/$defs/MessageAssistantDeltaData",
+          "message.assistant.done": "#/$defs/MessageAssistantDoneData",
+          "message.user": "#/$defs/MessageUserData",
+          "replay.reset": "#/$defs/ReplayResetData",
+          "run.cancelled": "#/$defs/RunCancelledData",
+          "run.completed": "#/$defs/RunCompletedData",
+          "run.failed": "#/$defs/RunFailedData",
+          "run.interrupted": "#/$defs/RunInterruptedData",
+          "run.started": "#/$defs/RunStartedData",
+          "session.model_changed": "#/$defs/SessionModelChangedData",
+          "session.snapshot": "#/$defs/SessionSnapshotData",
+          "thinking.delta": "#/$defs/ThinkingDeltaData",
+          "thinking.done": "#/$defs/ThinkingDoneData",
+          "tool.completed": "#/$defs/ToolCompletedData",
+          "tool.failed": "#/$defs/ToolFailedData",
+          "tool.started": "#/$defs/ToolStartedData",
+          "tool.updated": "#/$defs/ToolUpdatedData",
+          "usage.updated": "#/$defs/UsageUpdatedData"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SessionSnapshotData"
+        },
+        {
+          "$ref": "#/$defs/SessionModelChangedData"
+        },
+        {
+          "$ref": "#/$defs/RunStartedData"
+        },
+        {
+          "$ref": "#/$defs/RunCompletedData"
+        },
+        {
+          "$ref": "#/$defs/RunFailedData"
+        },
+        {
+          "$ref": "#/$defs/RunCancelledData"
+        },
+        {
+          "$ref": "#/$defs/RunInterruptedData"
+        },
+        {
+          "$ref": "#/$defs/MessageUserData"
+        },
+        {
+          "$ref": "#/$defs/MessageAssistantDeltaData"
+        },
+        {
+          "$ref": "#/$defs/MessageAssistantDoneData"
+        },
+        {
+          "$ref": "#/$defs/ThinkingDeltaData"
+        },
+        {
+          "$ref": "#/$defs/ThinkingDoneData"
+        },
+        {
+          "$ref": "#/$defs/ToolStartedData"
+        },
+        {
+          "$ref": "#/$defs/ToolUpdatedData"
+        },
+        {
+          "$ref": "#/$defs/ToolCompletedData"
+        },
+        {
+          "$ref": "#/$defs/ToolFailedData"
+        },
+        {
+          "$ref": "#/$defs/ApprovalRequestedData"
+        },
+        {
+          "$ref": "#/$defs/ApprovalResolvedData"
+        },
+        {
+          "$ref": "#/$defs/UsageUpdatedData"
+        },
+        {
+          "$ref": "#/$defs/ContextCompactedData"
+        },
+        {
+          "$ref": "#/$defs/ErrorEventData"
+        },
+        {
+          "$ref": "#/$defs/ReplayResetData"
+        }
+      ],
+      "title": "Data"
+    }
+  },
+  "required": [
+    "sequence",
+    "timestamp",
+    "session_id",
+    "type",
+    "data"
+  ],
+  "title": "EventEnvelope",
+  "type": "object"
+}

@@ -1,0 +1,33 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ty_cache/
+
+# Virtual environments
+.venv
+
+# Node / TypeScript
+node_modules/
+packages/*/dist/
+npm-debug.log*
+package-lock.json.bak
+
+# Reference projects (local clones only)
+reference/
+
+# Agent tooling / local agent config
+.agents/
+
+# Local service data and secrets (never commit)
+*.db
+credentials.toml
+.env
+.env.*
+

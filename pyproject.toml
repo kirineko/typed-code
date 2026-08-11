@@ -1,0 +1,53 @@
+[project]
+name = "typed-code"
+version = "0.1.0"
+description = "A typed coding agent harness"
+readme = "README.md"
+authors = [
+    { name = "kirineko", email = "kirineko@qq.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "aiosqlite>=0.20,<1",
+    "fastapi>=0.115,<1",
+    "pydantic>=2.10,<3",
+    "pydantic-ai-slim[openai]>=1.0",
+    "tiktoken>=0.9,<1",
+    "tomli-w>=1,<2",
+    "uvicorn[standard]>=0.32,<1",
+]
+
+[project.scripts]
+typed-code = "typed_code.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.10,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28,<1",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.14",
+    "ty>=0.0.32",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+exclude = ["dist", "reference", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]  # FastAPI Depends() in defaults is the framework idiom
+
+[tool.ty.src]
+include = ["src", "tests"]
+exclude = ["reference", ".venv"]
