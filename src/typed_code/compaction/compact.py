@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from typed_code.compaction.budget import (
@@ -100,12 +101,52 @@ def _split_units(messages: list[ModelMessageRecord]) -> list[list[ModelMessageRe
         return []
     units: list[list[ModelMessageRecord]] = []
     current: list[ModelMessageRecord] = []
+    current_run_id: str | None = None
     for msg in messages:
-        if msg.role == "user" and current:
+        run_changed = (
+            bool(current)
+            and msg.run_id != current_run_id
+            and (msg.run_id is not None or current_run_id is not None)
+        )
+        legacy_user_boundary = (
+            bool(current)
+            and msg.run_id is None
+            and current_run_id is None
+            and _starts_user_turn(msg)
+        )
+        if run_changed or legacy_user_boundary:
             units.append(current)
-            current = [msg]
-        else:
-            current.append(msg)
+            current = []
+        current.append(msg)
+        current_run_id = msg.run_id
     if current:
         units.append(current)
     return units
+
+
+def _starts_user_turn(message: ModelMessageRecord) -> bool:
+    """Distinguish a user prompt request from tool-return request messages."""
+    if message.role != "user":
+        return False
+    try:
+        payload = json.loads(message.payload_json)
+    except json.JSONDecodeError:
+        return True
+    if isinstance(payload, list) and payload:
+        payload = payload[0]
+    if not isinstance(payload, dict):
+        return True
+    parts = payload.get("parts")
+    if not isinstance(parts, list):
+        return True
+
+    kinds = {
+        str(part.get("part_kind") or part.get("type") or "")
+        for part in parts
+        if isinstance(part, dict)
+    }
+    if kinds.intersection(
+        {"tool-return", "retry-prompt", "tool-search-return", "capability-load-return"}
+    ):
+        return False
+    return "user-prompt" in kinds or not (kinds - {""})

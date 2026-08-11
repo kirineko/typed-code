@@ -97,11 +97,16 @@ export async function ensureLocalService(opts: {
     }
     await sleep(200);
   }
-  stopOwnedService({ baseUrl: opts.baseUrl, token: opts.token, owned: true, child });
+  await stopOwnedService({
+    baseUrl: opts.baseUrl,
+    token: opts.token,
+    owned: true,
+    child,
+  });
   throw new Error(`timed out waiting for typed-code serve at ${opts.baseUrl}`);
 }
 
-export function stopOwnedService(handle: ServiceHandle): void {
+export async function stopOwnedService(handle: ServiceHandle): Promise<void> {
   if (!handle.owned || !handle.child) {
     return;
   }
@@ -112,20 +117,38 @@ export function stopOwnedService(handle: ServiceHandle): void {
   try {
     child.kill("SIGTERM");
   } catch {
-    // ignore
+    return;
   }
-  const killer = setTimeout(() => {
-    try {
-      if (child.exitCode === null) {
-        child.kill("SIGKILL");
-      }
-    } catch {
-      // ignore
-    }
-  }, 2000);
-  killer.unref?.();
+  if (await waitForExit(child, 2000)) {
+    return;
+  }
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    return;
+  }
+  await waitForExit(child, 1000);
+}
+
+async function waitForExit(
+  child: ChildProcess,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (child.exitCode !== null) {
+    return true;
+  }
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  const onExit = () => resolve(true);
+  child.once("exit", onExit);
+  const timer = setTimeout(() => resolve(false), timeoutMs);
+  const exited = await promise;
+  clearTimeout(timer);
+  child.removeListener("exit", onExit);
+  return exited || child.exitCode !== null;
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
 }

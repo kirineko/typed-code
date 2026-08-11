@@ -118,6 +118,22 @@ describe("SessionController", () => {
     assert.equal(turned, true);
   });
 
+  it("restores authoritative idle state when turn creation fails", async () => {
+    const client = mockClient({
+      createTurn: async () => {
+        throw new Error("conflict");
+      },
+      getSession: async () => snapshot({ phase: "idle" }),
+    });
+    const c = new SessionController(client);
+    await c.attach("sess-1");
+
+    await assert.rejects(() => c.submit("hello"), /conflict/);
+
+    assert.equal(c.view.phase, "idle");
+    assert.equal(c.view.snapshot?.phase, "idle");
+  });
+
   it("approve uses pending approval id", async () => {
     let seenId: string | null = null;
     const client = mockClient({

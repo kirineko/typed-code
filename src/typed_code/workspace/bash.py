@@ -8,7 +8,7 @@ import signal
 from dataclasses import dataclass
 from pathlib import Path
 
-from typed_code.workspace.bounds import TruncationInfo, truncate_bytes
+from typed_code.workspace.bounds import TruncationInfo
 from typed_code.workspace.errors import BashUnavailableError
 
 _ENV_ALLOWLIST = frozenset(
@@ -116,9 +116,20 @@ async def run_bash(
     watcher: asyncio.Task[None] | None = None
     if cancel_event is not None:
         watcher = asyncio.create_task(_watch_cancel())
+    stdout_task = asyncio.create_task(
+        _read_bounded(proc.stdout, max_bytes=max_stdout_bytes)
+    )
+    stderr_task = asyncio.create_task(
+        _read_bounded(proc.stderr, max_bytes=max_stderr_bytes)
+    )
 
     try:
-        stdout_b, stderr_b = await proc.communicate()
+        await proc.wait()
+        stdout_pair, stderr_pair = await asyncio.gather(stdout_task, stderr_task)
+    except asyncio.CancelledError:
+        await asyncio.shield(_kill_process_tree(proc))
+        await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+        raise
     finally:
         if watcher is not None:
             watcher.cancel()
@@ -127,8 +138,8 @@ async def run_bash(
             except asyncio.CancelledError:
                 pass
 
-    stdout_cap, stdout_tr = truncate_bytes(stdout_b or b"", max_bytes=max_stdout_bytes)
-    stderr_cap, stderr_tr = truncate_bytes(stderr_b or b"", max_bytes=max_stderr_bytes)
+    stdout_cap, stdout_tr = stdout_pair
+    stderr_cap, stderr_tr = stderr_pair
 
     return BashResult(
         command=command,
@@ -139,6 +150,32 @@ async def run_bash(
         stderr_truncation=stderr_tr,
         cancelled=cancelled,
     )
+
+async def _read_bounded(
+    stream: asyncio.StreamReader | None, *, max_bytes: int
+) -> tuple[bytes, TruncationInfo]:
+    if stream is None:
+        return b"", TruncationInfo(
+            truncated=False,
+            original_bytes=0,
+            captured_bytes=0,
+        )
+
+    captured = bytearray()
+    original_bytes = 0
+    while chunk := await stream.read(64 * 1024):
+        original_bytes += len(chunk)
+        remaining = max_bytes - len(captured)
+        if remaining > 0:
+            captured.extend(chunk[:remaining])
+    data = bytes(captured)
+    return data, TruncationInfo(
+        truncated=original_bytes > len(data),
+        original_bytes=original_bytes,
+        captured_bytes=len(data),
+        direction="end",
+    )
+
 
 
 async def _kill_process_tree(proc: asyncio.subprocess.Process) -> None:

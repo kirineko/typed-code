@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 from typed_code.domain import DomainConflict
+from typed_code.domain.transitions import TransitionResult
 from typed_code.persistence import SessionRepository
 from typed_code.protocol.common import ProviderName, SessionPhase
 from typed_code.protocol.errors import ErrorCode, StructuredError
@@ -60,6 +61,46 @@ async def test_concurrent_session_writes_are_serialized(
     created = await asyncio.gather(create(1), create(2))
     assert len({item.snapshot.session_id for item in created}) == 2
     assert all(item.snapshot.revision == 1 for item in created)
+
+
+@pytest.mark.asyncio
+async def test_read_waits_for_rollback_instead_of_observing_uncommitted_state(
+    repo: SessionRepository,
+) -> None:
+    wrote = asyncio.Event()
+    release = asyncio.Event()
+    original = repo._write_transition
+
+    async def fail_after_write(
+        result: TransitionResult,
+        *,
+        is_new_session: bool = False,
+    ) -> None:
+        await original(result, is_new_session=is_new_session)
+        wrote.set()
+        await release.wait()
+        raise RuntimeError("forced rollback")
+
+    object.__setattr__(repo, "_write_transition", fail_after_write)
+    writer = asyncio.create_task(
+        repo.create_session(
+            workspace_path="/tmp/uncommitted",
+            provider=ProviderName.CLIPROXY,
+            model="m1",
+        )
+    )
+    try:
+        await wrote.wait()
+        reader = asyncio.create_task(repo.list_sessions())
+        await asyncio.sleep(0)
+        assert reader.done() is False
+        release.set()
+        with pytest.raises(RuntimeError, match="forced rollback"):
+            await writer
+        assert await reader == []
+    finally:
+        release.set()
+        object.__setattr__(repo, "_write_transition", original)
 
 @pytest.mark.asyncio
 async def test_transaction_rollback_leaves_revision_unchanged(

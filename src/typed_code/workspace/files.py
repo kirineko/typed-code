@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from difflib import unified_diff
 from pathlib import Path
 
-from typed_code.workspace.bounds import TruncationInfo, truncate_text
+from typed_code.workspace.bounds import TruncationInfo
 from typed_code.workspace.errors import (
     EditConflictError,
     EncodingError,
@@ -51,22 +51,41 @@ def read_text_file(
     if not target.exists() or not target.is_file():
         raise FileNotFoundWorkspaceError(f"file not found: {user_path}")
 
-    raw = target.read_bytes()
+    size_bytes = target.stat().st_size
+    with target.open("rb") as handle:
+        sample = handle.read(max_bytes + 4)
+    captured_raw = sample[:max_bytes]
     try:
-        text = raw.decode("utf-8")
-        encoding = "utf-8"
+        text = captured_raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise EncodingError(
-            f"file is not valid UTF-8 text: {user_path} ({exc.reason})"
-        ) from exc
+        byte_limited = size_bytes > len(captured_raw)
+        if byte_limited and exc.reason == "unexpected end of data":
+            captured_raw = captured_raw[: exc.start]
+            text = captured_raw.decode("utf-8")
+        else:
+            raise EncodingError(
+                f"file is not valid UTF-8 text: {user_path} ({exc.reason})"
+            ) from exc
 
-    content, truncation = truncate_text(text, max_bytes=max_bytes, max_lines=max_lines)
+    all_lines = text.splitlines(keepends=True)
+    line_limited = len(all_lines) > max_lines
+    content = "".join(all_lines[:max_lines]) if line_limited else text
+    captured_bytes = len(content.encode("utf-8"))
+    byte_limited = size_bytes > captured_bytes
+    complete_file_decoded = size_bytes <= max_bytes
     return ReadResult(
         path=display_path(workspace, target),
         content=content,
-        size_bytes=len(raw),
-        encoding=encoding,
-        truncation=truncation,
+        size_bytes=size_bytes,
+        encoding="utf-8",
+        truncation=TruncationInfo(
+            truncated=byte_limited or line_limited,
+            original_bytes=size_bytes,
+            captured_bytes=captured_bytes,
+            original_lines=len(all_lines) if complete_file_decoded else None,
+            captured_lines=len(content.splitlines()) if content else 0,
+            direction="end",
+        ),
     )
 
 

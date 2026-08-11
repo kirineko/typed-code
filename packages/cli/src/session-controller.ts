@@ -99,11 +99,22 @@ export class SessionController {
     if (!text) {
       throw new Error("empty prompt");
     }
-    // Optimistic phase
+    const previous = this.view;
     this.view = { ...this.view, phase: "running" };
     this.emit("turn submitted");
-    await this.client.createTurn(this.sessionId, { prompt: text });
-    // Refresh snapshot in case events are delayed
+    try {
+      await this.client.createTurn(this.sessionId, { prompt: text });
+    } catch (error) {
+      try {
+        const authoritative = await this.client.getSession(this.sessionId);
+        this.view = applySnapshot(this.view, authoritative);
+      } catch {
+        this.view = previous;
+      }
+      this.emit();
+      throw error;
+    }
+    // Refresh snapshot in case events are delayed.
     const snap = await this.client.getSession(this.sessionId);
     this.view = applySnapshot(this.view, snap);
     this.emit();

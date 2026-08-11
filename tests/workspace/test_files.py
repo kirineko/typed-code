@@ -27,6 +27,19 @@ def test_read_truncation(tmp_path: Path) -> None:
     assert result.content.count("\n") <= 5
 
 
+def test_read_byte_limit_preserves_utf8_boundary(tmp_path: Path) -> None:
+    root = normalize_workspace_root(tmp_path)
+    write_text_file(root, "unicode.txt", "abc猫tail\n")
+
+    result = read_text_file(root, "unicode.txt", max_bytes=5, max_lines=100)
+
+    assert result.content == "abc"
+    assert result.truncation.truncated is True
+    assert result.truncation.original_bytes == len("abc猫tail\n".encode())
+    assert result.truncation.captured_bytes == 3
+    assert result.truncation.original_lines is None
+
+
 def test_edit_unique_and_conflict(tmp_path: Path) -> None:
     root = normalize_workspace_root(tmp_path)
     write_text_file(root, "f.txt", "aaa bbb aaa\n")

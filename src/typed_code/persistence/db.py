@@ -19,16 +19,41 @@ class Database:
     def __init__(self, conn: aiosqlite.Connection, path: Path) -> None:
         self._conn = conn
         self.path = path
-        self._write_lock = asyncio.Lock()
+        self._operation_lock = asyncio.Lock()
+        self._operation_owner: asyncio.Task[object] | None = None
+        self._operation_depth = 0
 
     @property
     def connection(self) -> aiosqlite.Connection:
         return self._conn
 
     @asynccontextmanager
+    async def operation(self) -> AsyncIterator[None]:
+        """Serialize repository operations while allowing same-task nesting."""
+        task = asyncio.current_task()
+        if task is None:
+            raise RuntimeError("database operation requires an asyncio task")
+        if self._operation_owner is task:
+            self._operation_depth += 1
+            try:
+                yield
+            finally:
+                self._operation_depth -= 1
+            return
+
+        async with self._operation_lock:
+            self._operation_owner = task
+            self._operation_depth = 1
+            try:
+                yield
+            finally:
+                self._operation_depth = 0
+                self._operation_owner = None
+
+    @asynccontextmanager
     async def write_transaction(self) -> AsyncIterator[None]:
         """Serialize one complete SQLite write transaction on the shared connection."""
-        async with self._write_lock:
+        async with self.operation():
             await self._conn.execute("BEGIN IMMEDIATE")
             try:
                 yield

@@ -138,12 +138,21 @@ describe("session reducer", () => {
   it("sets terminal phase on run.completed", () => {
     let state = applySnapshot(
       createSessionViewState(),
-      baseSnapshot({ phase: "running" }),
+      baseSnapshot({
+        phase: "running",
+        active_run: {
+          run_id: "r1",
+          status: "running",
+          prompt_preview: "hi",
+          started_at: "t",
+        },
+      }),
     );
     state = applyEvent(
       state,
       env(1, "run.completed", { type: "run.completed", run_id: "r1" }),
     );
     assert.equal(state.phase, "idle");
+    assert.equal(state.snapshot?.active_run, null);
   });
 });

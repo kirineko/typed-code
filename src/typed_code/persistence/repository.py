@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any, Literal
+from functools import wraps
+from typing import Any, Concatenate, Literal, cast
 
 import aiosqlite
 
@@ -53,6 +55,24 @@ from typed_code.protocol.errors import StructuredError
 from typed_code.protocol.events import EventEnvelope
 from typed_code.protocol.sessions import SessionSnapshot, SessionSummary
 from typed_code.protocol.transcript import TranscriptItem
+
+
+def _serialized_operation[**P, R](
+    method: Callable[Concatenate[SessionRepository, P], Coroutine[Any, Any, R]],
+) -> Callable[Concatenate[SessionRepository, P], Coroutine[Any, Any, R]]:
+    """Hold the shared-connection gate for one complete repository operation."""
+
+    @wraps(method)
+    async def wrapped(
+        self: SessionRepository, *args: P.args, **kwargs: P.kwargs
+    ) -> R:
+        async with self._db.operation():
+            return await method(self, *args, **kwargs)
+
+    return cast(
+        "Callable[Concatenate[SessionRepository, P], Coroutine[Any, Any, R]]",
+        wrapped,
+    )
 
 
 @dataclass(frozen=True)
@@ -158,6 +178,7 @@ class SessionRepository:
         session = await self.load_session(session_id)
         return session_to_snapshot(session)
 
+    @_serialized_operation
     async def list_sessions(self) -> list[SessionSummary]:
         cursor = await self.connection.execute(
             """
@@ -186,6 +207,7 @@ class SessionRepository:
             )
         return summaries
 
+    @_serialized_operation
     async def load_session(self, session_id: str) -> SessionState:
         cursor = await self.connection.execute(
             """
@@ -201,6 +223,7 @@ class SessionRepository:
             raise DomainNotFound(f"session not found: {session_id}")
         return await self._hydrate_session(row)
 
+    @_serialized_operation
     async def list_events(self, session_id: str, *, after: int) -> ReplayResult:
         if after < 0:
             raise ValueError("after must be >= 0")
@@ -256,6 +279,7 @@ class SessionRepository:
         ]
         return ReplayResult(status="ok", events=events, snapshot=None)
 
+    @_serialized_operation
     async def recover_abandoned_runs(self) -> list[PersistResult]:
         """Mark all non-terminal runs interrupted (process start has no live owners)."""
         cursor = await self.connection.execute(
@@ -278,6 +302,7 @@ class SessionRepository:
             results.append(await self.interrupt_run(session_id))
         return results
 
+    @_serialized_operation
     async def list_model_messages(self, session_id: str) -> list[ModelMessageRecord]:
         await self.load_session(session_id)  # not-found check
         cursor = await self.connection.execute(
@@ -303,6 +328,7 @@ class SessionRepository:
             for r in rows
         ]
 
+    @_serialized_operation
     async def list_run_approval_decisions(
         self, session_id: str, *, run_id: str
     ) -> dict[str, bool]:
@@ -393,6 +419,7 @@ class SessionRepository:
             # callers that need it re-load session.
             return persist
 
+    @_serialized_operation
     async def get_context_usage_checkpoint(
         self, session_id: str
     ) -> ContextUsageCheckpoint | None:

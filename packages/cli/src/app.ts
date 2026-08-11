@@ -96,14 +96,14 @@ export async function runApp(flags: CliFlags): Promise<number> {
     if (!service.owned) {
       console.error("Start the server: uv run typed-code serve");
     }
-    stopOwnedService(service);
+    await stopOwnedService(service);
     return 1;
   }
   if (health.protocol_version !== PROTOCOL_VERSION) {
     console.error(
       `protocol mismatch: server=${health.protocol_version} client=${PROTOCOL_VERSION}`,
     );
-    stopOwnedService(service);
+    await stopOwnedService(service);
     return 1;
   }
 
@@ -114,7 +114,7 @@ export async function runApp(flags: CliFlags): Promise<number> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`failed to open session: ${msg}`);
-    stopOwnedService(service);
+    await stopOwnedService(service);
     return 1;
   }
 
@@ -210,13 +210,17 @@ export async function runApp(flags: CliFlags): Promise<number> {
     }
     exited = true;
     controller.dispose();
-    stopOwnedService(service);
     try {
       tui.stop();
     } catch {
       // ignore
     }
-    process.exit(0);
+    void stopOwnedService(service).catch((error) => {
+      console.error(
+        `failed to stop local service: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      process.exitCode = 1;
+    });
   };
 
   tui.addInputListener((data) => {

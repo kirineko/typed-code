@@ -63,35 +63,12 @@ export function applyEvent(
     case "run.failed":
     case "run.cancelled":
     case "run.interrupted": {
-      next = patchSnapshot(next, (s) => {
-        if (!s.active_run) {
-          return { ...s, phase: "idle", active_run: null };
-        }
-        const status =
-          data.type === "run.completed"
-            ? ("completed" as const)
-            : data.type === "run.failed"
-              ? ("failed" as const)
-              : data.type === "run.cancelled"
-                ? ("cancelled" as const)
-                : ("interrupted" as const);
-        return {
-          ...s,
-          phase: "idle",
-          active_run: {
-            run_id: s.active_run.run_id,
-            status,
-            prompt_preview: s.active_run.prompt_preview,
-            started_at: s.active_run.started_at,
-            ended_at: event.timestamp,
-            error_code: s.active_run.error_code ?? null,
-            error_message:
-              data.type === "run.failed"
-                ? data.error.message
-                : (s.active_run.error_message ?? null),
-          },
-        };
-      });
+      next = patchSnapshot(next, (s) => ({
+        ...s,
+        phase: "idle",
+        active_run: null,
+        pending_approvals: [],
+      }));
       next = { ...next, phase: "idle" };
       if (data.type === "run.failed") {
         next = { ...next, error: data.error };
