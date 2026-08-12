@@ -22,6 +22,14 @@ from typed_code.protocol.common import (
 )
 from typed_code.protocol.errors import ErrorCode, ErrorResponse, StructuredError
 from typed_code.protocol.events import EventData, EventEnvelope
+from typed_code.protocol.health import (
+    ActiveWorkSummary,
+    BashHealth,
+    HealthResponse,
+    ServiceHealth,
+    ServiceStopRequest,
+    ServiceStopResponse,
+)
 from typed_code.protocol.models import ModelCapabilities, ModelInfo, ModelListResponse
 from typed_code.protocol.requests import AbortRequest, CreateTurnRequest
 from typed_code.protocol.sessions import (
@@ -42,6 +50,8 @@ __all__ = [
     "ApprovalDecision",
     "ApprovalDecisionRequest",
     "ApprovalStatus",
+    "ActiveWorkSummary",
+    "BashHealth",
     "ApprovalSummary",
     "CreateSessionRequest",
     "CreateSessionResponse",
@@ -52,6 +62,7 @@ __all__ = [
     "EventData",
     "EventEnvelope",
     "EventType",
+    "HealthResponse",
     "ModelCapabilities",
     "ModelInfo",
     "ModelListResponse",
@@ -62,6 +73,9 @@ __all__ = [
     "RunSummary",
     "SessionListResponse",
     "SessionPhase",
+    "ServiceHealth",
+    "ServiceStopRequest",
+    "ServiceStopResponse",
     "SessionSnapshot",
     "SessionSummary",
     "StructuredError",

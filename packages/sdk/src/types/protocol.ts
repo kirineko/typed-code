@@ -220,13 +220,42 @@ export interface CreateTurnResponse {
   status: "accepted";
 }
 
-export interface HealthResponse {
-  status: string;
+export interface ActiveWorkSummary {
+  active_runs: number;
+  pending_approvals: number;
+  connected_event_streams: number;
+}
+
+export interface ServiceStopRequest {
+  force?: boolean;
+}
+
+export interface ServiceStopResponse {
+  status: "stopping";
+  forced: boolean;
+  interrupted_runs: number;
+}
+
+export interface ServiceHealth {
+  service_version: string;
   protocol_version: number;
+  instance_id: string;
+  pid: number;
+  started_at: string;
+  data_dir: string;
+  base_url?: string | null;
+  managed: boolean;
+  active_work: ActiveWorkSummary;
+}
+
+export interface HealthResponse {
+  status: "ok";
+  protocol_version: number;
+  service: ServiceHealth;
   providers: Record<string, string>;
   bash: { ready: boolean; executable?: string | null };
-  default_provider?: string;
-  default_model?: string;
+  default_provider?: string | null;
+  default_model?: string | null;
 }
 
 /** Paths the SDK documents (must match contracts/openapi.v1.json). */
@@ -234,6 +263,7 @@ export const SDK_HTTP_PATHS = [
   "/v1/health",
   "/v1/models",
   "/v1/config/reload",
+  "/v1/service/stop",
   "/v1/sessions",
   "/v1/sessions/{session_id}",
   "/v1/sessions/{session_id}/model",

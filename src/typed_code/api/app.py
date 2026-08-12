@@ -13,12 +13,13 @@ from typed_code.api.auth import (
     HTTPExceptionWithStructuredError,
     structured_http_exception_handler,
 )
+from typed_code.api.browser_boundary import enforce_browser_boundary
 from typed_code.api.errors import (
     configuration_error_handler,
     domain_error_handler,
     validation_error_handler,
 )
-from typed_code.api.routes import config, events, health, models, sessions
+from typed_code.api.routes import config, events, health, models, service, sessions
 from typed_code.config.errors import ConfigurationError
 from typed_code.domain.errors import DomainError
 from typed_code.service.app_state import AppState, build_app_state
@@ -33,11 +34,14 @@ def create_app(state: AppState | None = None) -> FastAPI:
         else:
             app.state.app_state = state
             owns = False
+        app.state.app_state.start_background_tasks()
         try:
             yield
         finally:
             if owns:
                 await app.state.app_state.aclose()
+            else:
+                await app.state.app_state.stop_background_tasks()
 
     app = FastAPI(
         title="typed-code",
@@ -56,10 +60,12 @@ def create_app(state: AppState | None = None) -> FastAPI:
         HTTPExceptionWithStructuredError,
         cast(Any, structured_http_exception_handler),
     )
+    app.middleware("http")(enforce_browser_boundary)
 
     app.include_router(health.router)
     app.include_router(models.router)
     app.include_router(config.router)
+    app.include_router(service.router)
     app.include_router(sessions.router)
     app.include_router(events.router)
     return app

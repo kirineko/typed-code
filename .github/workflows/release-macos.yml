@@ -1,0 +1,80 @@
+name: release-macos
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package-darwin-arm64:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      CERTIFICATE_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+      CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+      CODESIGN_IDENTITY: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
+      NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
+      NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+      NOTARY_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.9"
+          enable-cache: true
+      - name: Verify release host and inputs
+        run: |
+          test "$(uname -m)" = arm64
+          test -n "$CERTIFICATE_P12"
+          test -n "$CERTIFICATE_PASSWORD"
+          test -n "$CODESIGN_IDENTITY"
+          test -n "$NOTARY_APPLE_ID"
+          test -n "$NOTARY_PASSWORD"
+          test -n "$NOTARY_TEAM_ID"
+      - run: npm ci
+      - name: Import Developer ID certificate
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/typed-code-signing.keychain-db"
+          security create-keychain -p runner "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p runner "$KEYCHAIN"
+          printf '%s' "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s -k runner "$KEYCHAIN"
+      - name: Build and sign companion
+        env:
+          SOURCE_DATE_EPOCH: "0"
+          TYPED_CODE_CODESIGN_IDENTITY: ${{ env.CODESIGN_IDENTITY }}
+        run: npm run build:companion
+      - name: Submit exact companion for notarization
+        run: |
+          ditto -c -k --keepParent packages/server-darwin-arm64/bin/typed-code-server release-notary.zip
+          xcrun notarytool submit release-notary.zip \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "$NOTARY_TEAM_ID" \
+            --wait
+          codesign --verify --deep --strict packages/server-darwin-arm64/bin/typed-code-server
+          spctl --assess --type execute --verbose packages/server-darwin-arm64/bin/typed-code-server
+      - name: Pack and validate release artifacts
+        run: npm run pack:release
+      - name: Verify checksums
+        working-directory: release
+        run: shasum -a 256 -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typed-code-darwin-arm64-${{ github.ref_name }}
+          path: |
+            release/*.tgz
+            release/SHA256SUMS
+            release-notary.zip
+          if-no-files-found: error

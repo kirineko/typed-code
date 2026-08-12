@@ -48,6 +48,67 @@ async def test_turn_and_conflict(
 
 
 @pytest.mark.asyncio
+async def test_concurrent_turns_have_one_authoritative_winner(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    api_env: tuple[AppState, Path, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state, ws, _token = api_env
+    created = await client.post(
+        "/v1/sessions",
+        headers=auth_headers,
+        json={"workspace_path": str(ws), "provider": "cliproxy", "model": "gpt-5.6-sol"},
+    )
+    sid = created.json()["snapshot"]["session_id"]
+    release = asyncio.Event()
+
+    async def hold_run(session_id: str, prompt: str, **_kwargs: object) -> None:
+        await state.runtime.repository.start_turn(session_id, prompt)
+        await release.wait()
+
+    monkeypatch.setattr(state.runtime, "run_turn", hold_run)
+    first_request = asyncio.create_task(
+        client.post(
+            f"/v1/sessions/{sid}/turns",
+            headers=auth_headers,
+            json={"prompt": "first client"},
+        )
+    )
+    try:
+        for _ in range(100):
+            snapshot = (await client.get(f"/v1/sessions/{sid}", headers=auth_headers)).json()
+            if snapshot["phase"] == "running":
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("first client never started a run")
+
+        conflicting = await client.post(
+            f"/v1/sessions/{sid}/turns",
+            headers=auth_headers,
+            json={"prompt": "second client"},
+        )
+        accepted = await first_request
+
+        assert accepted.status_code == 200, accepted.text
+        assert conflicting.status_code == 409, conflicting.text
+        assert conflicting.json()["error"]["code"] == "conflict"
+        authoritative = (await client.get(f"/v1/sessions/{sid}", headers=auth_headers)).json()
+        assert authoritative["phase"] == "running"
+        assert authoritative["transcript"][-1]["text"] == "first client"
+    finally:
+        release.set()
+        if not first_request.done():
+            await first_request
+        await client.post(
+            f"/v1/sessions/{sid}/abort",
+            headers=auth_headers,
+            json={},
+        )
+
+
+@pytest.mark.asyncio
 async def test_abort(
     client: AsyncClient,
     auth_headers: dict[str, str],

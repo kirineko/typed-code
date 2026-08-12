@@ -4,18 +4,41 @@ A typed coding agent harness with a Python agent service and TypeScript CLI.
 
 ## Requirements
 
-- **Python 3.13+** and [uv](https://docs.astral.sh/uv/)
-- **Node.js 22+**
-- **macOS or Linux with Bash** (MVP)
+- **Production:** macOS on Apple Silicon and Node.js 22+. The packaged service does not require Python or `uv`.
+- **Development:** Python 3.13+, [uv](https://docs.astral.sh/uv/), Node.js 22+, and Bash.
 
-Native Windows / PowerShell are out of scope for the MVP.
+Linux remains supported for source development but does not yet have a verified production companion. Other production platforms fail before the TUI with the detected platform and supported target.
 
-## Setup
+## Production installation (macOS Apple Silicon)
+
+Install the published CLI package. Its same-version optional dependency provides the signed and notarized service companion:
+
+```bash
+npm install --global @typed-code/cli
+typed-code
+```
+
+`typed-code` is the only public command. The former `typed-code-cli` npm bin was removed; scripts must switch to `typed-code`. Upgrades preserve the existing XDG credentials and SQLite database, but a running older service must be stopped before installing an incompatible CLI release.
+
+## Development setup
 
 ```bash
 uv sync
 npm install
-npm run build -w @typed-code/cli
+npm run dev:link
+typed-code dev configure --project "$(pwd -P)"
+```
+
+The one-time development configuration stores the absolute backend source root
+under `${XDG_CONFIG_HOME:-~/.config}/typed-code/config.toml`. Afterward the linked
+CLI is cwd-independent:
+
+```bash
+cd /path/to/any-project
+typed-code
+
+# Equivalent direct backend entry while staying in the target workspace:
+uv run --project /absolute/path/to/typed-code typed-code serve
 ```
 
 ## Default path (single entry)
@@ -23,20 +46,41 @@ npm run build -w @typed-code/cli
 One command is enough for ordinary local use:
 
 ```bash
-npx typed-code-cli --workspace "$PWD"
-# or: node packages/cli/dist/bin.js
+typed-code
 ```
 
 What happens:
 
 1. Ensures `~/.config/typed-code/credentials.toml` (dir `0700`, file `0600`)
 2. **Auto-generates** a server bearer token (never shown in the TUI)
-3. Starts or reuses the compatible loopback agent service
+3. Starts or reuses the compatible persistent user-scoped loopback service
 4. Runs secure provider setup inside the TUI when no provider is available
 5. Opens an unsaved new-session draft for the canonical workspace
 6. Persists the session only after the first non-empty prompt
 
 Historical sessions are never selected automatically. Use `/resume` to return to current-project history or `/resume --all` to browse canonical workspace groups.
+
+### Service management
+
+Service commands run without opening the TUI:
+
+| Command | Behavior |
+|---------|----------|
+| `typed-code server status` | Probe authenticated health without starting an absent service |
+| `typed-code server start` | Start or reuse the matching user-scoped service |
+| `typed-code server stop` | Stop only when no run or approval is active |
+| `typed-code server stop --force` | Explicitly interrupt active work and stop |
+| `typed-code server restart [--force]` | Apply the same guard, then start the matching service |
+| `typed-code server logs [--lines N]` | Show bounded service logs with known credentials redacted |
+
+The service persists after all CLI clients exit. Optional idle shutdown is disabled by default. To enable it, add:
+
+```toml
+[service]
+idle_timeout_seconds = 900
+```
+
+`TYPED_CODE_IDLE_TIMEOUT_SECONDS` is the environment fallback. `0` disables the policy. Idle shutdown never fires while a run, approval, or event stream is active.
 
 Startup model precedence is: explicit `--provider`/`--model`, the most recent successful `/model` selection, `deepseek/deepseek-v4-flash` when DeepSeek is available, the service default, then the first available model. This means a fresh setup with both provider credentials prefers DeepSeek, while a later user selection such as `cliproxy/gpt-5.6-terra` is restored on the next launch. The `/model` flow uses each provider's declared Responses API effort table: DeepSeek offers `none`/`low`/`high`/`max` and defaults to `high`; OpenAI reasoning models offer `none`/`low`/`medium`/`high`/`xhigh`/`max` and default to `medium`. The selected effort appears in the header and `/status`, persists for the next launch, and is sent unchanged with each future turn. Models without declared reasoning support receive no inferred setting.
 
@@ -102,15 +146,36 @@ File fields win over environment variables.
 
 Any **one** provider key is enough to skip onboarding; the other can stay missing.
 
+### Data, backup, and runtime cleanup
+
+Durable state lives under `${XDG_DATA_HOME:-~/.local/share}/typed-code/`:
+
+```text
+typed-code/
+├── typed-code.db         # sessions, transcript, and event history
+└── runtime/              # disposable lock, descriptor, and bounded logs
+```
+
+Back up `typed-code.db` together with the XDG configuration directory. `runtime/` is process metadata, not durable state. Delete it only after `typed-code server stop`; a live lock/descriptor must not be removed to work around a startup error.
+
+### Troubleshooting
+
+- **Incompatible or legacy service:** run the matching installed `typed-code server stop`, then reinstall/upgrade and start again. The launcher never attaches to a mismatched release or protocol.
+- **Port already in use:** stop the conflicting process or choose one fixed `[listen]` port in `config.toml`. The launcher does not silently choose a random port.
+- **Stale development path:** rerun `typed-code dev configure --project <absolute-root>` or `--executable <absolute-path>`. The target workspace is never treated as the backend source.
+- **Active-work stop refused:** resume the session and finish/abort it, or use `server stop --force` only when interruption is intended.
+- **Unsupported production target:** use source development or a separately versioned preview. The production launcher does not search `PATH` for an arbitrary backend.
+- **Runtime metadata appears stale:** use `server status` first. Identity is accepted only when descriptor data matches authenticated health; do not signal a descriptor PID directly.
+
 ## Advanced: two-process mode
 
 ```bash
-# terminal A
+# terminal A — explicit cwd-independent development service
 export TYPED_CODE_SERVER_TOKEN=…
-uv run typed-code serve
+uv run --project /absolute/path/to/typed-code typed-code serve
 
-# terminal B
-npx typed-code-cli --no-spawn --token "$TYPED_CODE_SERVER_TOKEN" --new
+# terminal B — externally managed endpoint
+typed-code --no-spawn --token "$TYPED_CODE_SERVER_TOKEN" --new
 ```
 
 Other flags: `--base-url`, `--session-id`, `--provider`, `--model`.

@@ -76,29 +76,73 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _serve(*, host: str | None, port: int | None) -> int:
+    from contextlib import suppress
+    from copy import deepcopy
+
     import uvicorn
+    from uvicorn.config import LOGGING_CONFIG
 
     from typed_code.config.errors import ConfigurationError
     from typed_code.config.settings import load_settings
     from typed_code.service.app_state import build_app_state
+    from typed_code.service.runtime_identity import DEFAULT_MAX_LOG_BYTES
 
     async def _run() -> None:
         settings = load_settings()
         bind_host = host or settings.host
         bind_port = port or settings.port
         state = await build_app_state(settings=settings, require_server_token=True)
-        from typed_code.api.app import create_app
+        owner = state.service_owner
+        assert owner is not None
+        try:
+            from typed_code.api.app import create_app
 
-        app = create_app(state=state)
-        config = uvicorn.Config(
-            app,
-            host=bind_host,
-            port=bind_port,
-            log_level="info",
-            loop="asyncio",
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
+            app = create_app(state=state)
+            log_config = deepcopy(LOGGING_CONFIG)
+            log_config["handlers"]["service_file"] = {
+                "class": "logging.handlers.RotatingFileHandler",
+                "formatter": "default",
+                "filename": str(owner.paths.log_path),
+                "maxBytes": DEFAULT_MAX_LOG_BYTES,
+                "backupCount": 1,
+                "encoding": "utf-8",
+            }
+            for logger_name in ("uvicorn", "uvicorn.access"):
+                handlers = log_config["loggers"][logger_name]["handlers"]
+                if "service_file" not in handlers:
+                    handlers.append("service_file")
+            config = uvicorn.Config(
+                app,
+                host=bind_host,
+                port=bind_port,
+                log_level="info",
+                loop="asyncio",
+                log_config=log_config,
+            )
+            server = uvicorn.Server(config)
+            serve_task = asyncio.create_task(server.serve())
+            while not server.started and not serve_task.done():
+                await asyncio.sleep(0.01)
+            if server.started:
+                descriptor_host = "127.0.0.1" if bind_host in {"0.0.0.0", "::"} else bind_host
+                if ":" in descriptor_host and not descriptor_host.startswith("["):
+                    descriptor_host = f"[{descriptor_host}]"
+                owner.publish_descriptor(f"http://{descriptor_host}:{bind_port}")
+            shutdown_task = asyncio.create_task(state.shutdown_requested.wait())
+            try:
+                done, _pending = await asyncio.wait(
+                    {serve_task, shutdown_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if shutdown_task in done and not serve_task.done():
+                    server.should_exit = True
+                await serve_task
+            finally:
+                shutdown_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await shutdown_task
+        finally:
+            await state.aclose()
 
     try:
         import asyncio

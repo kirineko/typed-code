@@ -44,6 +44,7 @@ class Settings(BaseModel):
     bash_max_stdout_bytes: int = Field(default=DEFAULT_BASH_MAX_STDOUT_BYTES, ge=1)
     bash_max_stderr_bytes: int = Field(default=DEFAULT_BASH_MAX_STDERR_BYTES, ge=1)
     event_retention_count: int = Field(default=DEFAULT_EVENT_RETENTION_COUNT, ge=1)
+    idle_timeout_seconds: int | None = Field(default=None, ge=1)
 
     @field_validator("data_dir", mode="before")
     @classmethod
@@ -183,6 +184,11 @@ def _first_int(*candidates: object | None, default: int) -> int:
     return default
 
 
+def _optional_timeout(*candidates: object | None) -> int | None:
+    value = _first_int(*candidates, default=0)
+    return None if value == 0 else value
+
+
 def load_settings(
     *,
     config_path: Path | None = None,
@@ -208,6 +214,7 @@ def load_settings(
     defaults = _section(file_data, "defaults")
     bash = _section(file_data, "bash")
     limits = _section(file_data, "limits")
+    service = _section(file_data, "service")
 
     data_dir_raw = _first_str(
         _file_value(data, "dir"),
@@ -228,6 +235,10 @@ def load_settings(
                 default=DEFAULT_PORT,
             ),
             data_dir=data_dir_raw,
+            idle_timeout_seconds=_optional_timeout(
+                _file_value(service, "idle_timeout_seconds"),
+                _env_int(env, "TYPED_CODE_IDLE_TIMEOUT_SECONDS"),
+            ),
             deepseek_base_url=_first_str(
                 _nested_provider_base_url(providers, "deepseek"),
                 _env_str(env, "TYPED_CODE_DEEPSEEK_BASE_URL"),

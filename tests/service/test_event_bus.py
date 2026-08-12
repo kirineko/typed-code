@@ -28,3 +28,15 @@ async def test_queue_overflow_forces_reconnect_without_later_overwrite() -> None
 
         assert await queue.get() is None
         assert queue.empty()
+
+
+async def test_subscriber_count_tracks_live_streams() -> None:
+    bus = EventBus()
+
+    assert await bus.subscriber_count() == 0
+    async with bus.subscribe("session-1"):
+        assert await bus.subscriber_count() == 1
+        async with bus.subscribe("session-2"):
+            assert await bus.subscriber_count() == 2
+        assert await bus.subscriber_count() == 1
+    assert await bus.subscriber_count() == 0

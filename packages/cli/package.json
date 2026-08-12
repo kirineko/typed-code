@@ -4,7 +4,7 @@
   "description": "pi-tui interactive CLI for typed-code",
   "type": "module",
   "bin": {
-    "typed-code-cli": "./dist/bin.js"
+    "typed-code": "./dist/bin.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,6 +19,9 @@
   "dependencies": {
     "@earendil-works/pi-tui": "0.84.1",
     "@typed-code/sdk": "0.1.0"
+  },
+  "optionalDependencies": {
+    "@typed-code/server-darwin-arm64": "0.1.0"
   },
   "devDependencies": {
     "@types/node": "22.13.10",

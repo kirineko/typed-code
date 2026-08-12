@@ -32,6 +32,10 @@ export {
 } from "./types/events.js";
 export {
   SDK_HTTP_PATHS,
+  type ActiveWorkSummary,
+  type ServiceHealth,
+  type ServiceStopRequest,
+  type ServiceStopResponse,
   type ApprovalDecision,
   type ApprovalDecisionRequest,
   type ApprovalStatus,

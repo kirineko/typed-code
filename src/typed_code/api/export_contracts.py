@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from typed_code.api.routes import config, events, health, models, sessions
+from typed_code.api.routes import config, events, health, models, service, sessions
 from typed_code.protocol.events import EventEnvelope
 
 
@@ -21,6 +21,7 @@ def build_export_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(models.router)
     app.include_router(config.router)
+    app.include_router(service.router)
     app.include_router(sessions.router)
     app.include_router(events.router)
     return app

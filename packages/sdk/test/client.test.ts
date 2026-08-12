@@ -110,4 +110,32 @@ describe("HTTP client", () => {
     await client.listModels();
     assert.equal(auth, "Bearer secret-token");
   });
+
+  it("requests authenticated service shutdown", async () => {
+    let requestUrl = "";
+    let requestBody = "";
+    const fetchImpl: typeof fetch = async (input, init) => {
+      requestUrl = String(input);
+      requestBody = String(init?.body);
+      return new Response(
+        JSON.stringify({
+          status: "stopping",
+          forced: true,
+          interrupted_runs: 2,
+        }),
+        { status: 200 },
+      );
+    };
+    const client = createClient({
+      baseUrl: "http://test",
+      token: "secret-token",
+      fetch: fetchImpl,
+    });
+
+    const response = await client.stopService({ force: true });
+
+    assert.equal(requestUrl, "http://test/v1/service/stop");
+    assert.deepEqual(JSON.parse(requestBody), { force: true });
+    assert.equal(response.interrupted_runs, 2);
+  });
 });

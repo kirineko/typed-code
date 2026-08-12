@@ -18,6 +18,8 @@ node_modules/
 packages/*/dist/
 npm-debug.log*
 package-lock.json.bak
+/packages/server-darwin-arm64/bin/typed-code-server
+/release/
 
 # Reference projects (local clones only)
 reference/

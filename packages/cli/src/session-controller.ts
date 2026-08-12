@@ -136,9 +136,13 @@ export class SessionController {
     if (!this.sessionId) {
       return;
     }
-    const snap = await this.client.abort(this.sessionId);
-    this.view = applySnapshot(this.view, snap);
-    this.emit("aborted");
+    try {
+      const snap = await this.client.abort(this.sessionId);
+      this.view = applySnapshot(this.view, snap);
+      this.emit("aborted");
+    } catch (error) {
+      await this.reconcileAfterConflict(error);
+    }
   }
 
   async setModel(provider: ProviderName, model: string): Promise<void> {
@@ -148,12 +152,16 @@ export class SessionController {
     if (this.view.phase !== "idle") {
       throw new Error(`cannot switch model while phase=${this.view.phase}`);
     }
-    const snap = await this.client.updateSessionModel(this.sessionId, {
-      provider,
-      model,
-    });
-    this.view = applySnapshot(this.view, snap);
-    this.emit(`model → ${provider}/${model}`);
+    try {
+      const snap = await this.client.updateSessionModel(this.sessionId, {
+        provider,
+        model,
+      });
+      this.view = applySnapshot(this.view, snap);
+      this.emit(`model → ${provider}/${model}`);
+    } catch (error) {
+      await this.reconcileAfterConflict(error);
+    }
   }
 
   async approve(): Promise<void> {
@@ -172,13 +180,30 @@ export class SessionController {
     if (!pending) {
       throw new Error("no pending approval");
     }
-    const snap = await this.client.decideApproval(
-      this.sessionId,
-      pending.approval_id,
-      { decision },
-    );
-    this.view = applySnapshot(this.view, snap);
-    this.emit(`approval ${decision}`);
+    try {
+      const snap = await this.client.decideApproval(
+        this.sessionId,
+        pending.approval_id,
+        { decision },
+      );
+      this.view = applySnapshot(this.view, snap);
+      this.emit(`approval ${decision}`);
+    } catch (error) {
+      await this.reconcileAfterConflict(error);
+    }
+  }
+
+  private async reconcileAfterConflict(error: unknown): Promise<never> {
+    if (this.sessionId) {
+      try {
+        const authoritative = await this.client.getSession(this.sessionId);
+        this.view = applySnapshot(this.view, authoritative);
+        this.emit("authoritative state refreshed");
+      } catch {
+        // Preserve the last event-derived state if the refresh also fails.
+      }
+    }
+    throw error;
   }
 
   /** Close SSE only — does not abort the server run. */

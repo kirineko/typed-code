@@ -46,14 +46,21 @@ import {
 import { ModalCoordinator } from "./modal-coordinator.js";
 import { configureProvider } from "./provider-config.js";
 import {
-  ensureLocalService,
-  stopOwnedService,
+  resolveUserService,
   type ServiceHandle,
 } from "./service-lifecycle.js";
 import { colors, editorTheme } from "./theme.js";
 import { normalizeWorkspace } from "./workspace-sessions.js";
 
 export async function runApp(flags: CliFlags): Promise<number> {
+  let workspace: Awaited<ReturnType<typeof normalizeWorkspace>>;
+  try {
+    workspace = await normalizeWorkspace(flags.workspace);
+  } catch (error) {
+    console.error(errorMessage("invalid workspace", error));
+    return 1;
+  }
+
   const local = ensureLocalCredentials();
   let localCredentials = local.creds;
   const preferencePath = modelPreferencePath();
@@ -76,26 +83,25 @@ export async function runApp(flags: CliFlags): Promise<number> {
   tui.start();
   startupLoader.start();
 
-  let service: ServiceHandle | null = null;
+  let service: ServiceHandle;
   const failStartup = async (message: string): Promise<number> => {
     startupLoader.stop();
     startupMessage.setText(colors.red(`typed-code startup failed\n\n${message}`));
     tui.requestRender(true);
     tui.renderNow(true);
     tui.stop();
-    if (service) await stopOwnedService(service);
+    // The user-scoped service outlives this client.
     return 1;
   };
 
   try {
-    service = flags.noSpawn
-      ? {
-          baseUrl: flags.baseUrl,
-          token,
-          owned: false,
-          child: null,
-        }
-      : await ensureLocalService({ baseUrl: flags.baseUrl, token });
+    const external = flags.noSpawn || flags.baseUrlExplicit;
+    service = await resolveUserService({
+      token,
+      baseUrl: external ? flags.baseUrl : undefined,
+      external,
+      allowStart: !flags.noSpawn,
+    });
   } catch (error) {
     return failStartup(errorMessage("service startup failed", error));
   }
@@ -147,20 +153,13 @@ export async function runApp(flags: CliFlags): Promise<number> {
     }
   }
 
-  let workspace;
-  try {
-    startupLoader.setMessage("Resolving workspace…");
-    workspace = await normalizeWorkspace(flags.workspace);
-  } catch (error) {
-    return failStartup(errorMessage("invalid workspace", error));
-  }
 
   const selected = selectInitialModel(
     models,
     flags,
     modelPreference,
-    health.default_provider,
-    health.default_model,
+    health.default_provider ?? undefined,
+    health.default_model ?? undefined,
   );
   if (!selected) {
     return failStartup("no available model matches the requested provider/model");
@@ -208,12 +207,6 @@ export async function runApp(flags: CliFlags): Promise<number> {
     } finally {
       process.removeListener("SIGINT", onSignal);
       process.removeListener("SIGTERM", onSignal);
-    }
-    if (service) {
-      void stopOwnedService(service).catch((error: unknown) => {
-        console.error(errorMessage("failed to stop local service", error));
-        process.exitCode = 1;
-      });
     }
   };
   const onSignal = () => quit();

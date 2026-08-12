@@ -19,9 +19,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Health V1 Health Get"
+                  "$ref": "#/components/schemas/HealthResponse"
                 }
               }
             }
@@ -91,6 +89,52 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ConfigReloadResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/service/stop": {
+      "post": {
+        "tags": [
+          "service"
+        ],
+        "summary": "Stop Service",
+        "operationId": "stop_service_v1_service_stop_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceStopRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceStopResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -530,6 +574,32 @@
         "title": "AbortRequest",
         "description": "Optional body for abort; empty object is valid."
       },
+      "ActiveWorkSummary": {
+        "properties": {
+          "active_runs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Active Runs"
+          },
+          "pending_approvals": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pending Approvals"
+          },
+          "connected_event_streams": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Connected Event Streams"
+          }
+        },
+        "type": "object",
+        "required": [
+          "active_runs",
+          "pending_approvals",
+          "connected_event_streams"
+        ],
+        "title": "ActiveWorkSummary"
+      },
       "ApprovalDecision": {
         "type": "string",
         "enum": [
@@ -627,6 +697,30 @@
           "text"
         ],
         "title": "AssistantMessageItem"
+      },
+      "BashHealth": {
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "executable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ready"
+        ],
+        "title": "BashHealth"
       },
       "ConfigReloadResponse": {
         "properties": {
@@ -767,6 +861,64 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status",
+            "default": "ok"
+          },
+          "protocol_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Protocol Version",
+            "default": 1
+          },
+          "service": {
+            "$ref": "#/components/schemas/ServiceHealth"
+          },
+          "providers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Providers"
+          },
+          "bash": {
+            "$ref": "#/components/schemas/BashHealth"
+          },
+          "default_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Provider"
+          },
+          "default_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service",
+          "providers",
+          "bash"
+        ],
+        "title": "HealthResponse"
       },
       "ModelCapabilities": {
         "properties": {
@@ -970,6 +1122,102 @@
           "started_at"
         ],
         "title": "RunSummary"
+      },
+      "ServiceHealth": {
+        "properties": {
+          "service_version": {
+            "type": "string",
+            "title": "Service Version"
+          },
+          "protocol_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Protocol Version",
+            "default": 1
+          },
+          "instance_id": {
+            "type": "string",
+            "title": "Instance Id"
+          },
+          "pid": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Pid"
+          },
+          "started_at": {
+            "type": "string",
+            "title": "Started At"
+          },
+          "data_dir": {
+            "type": "string",
+            "title": "Data Dir"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "managed": {
+            "type": "boolean",
+            "title": "Managed"
+          },
+          "active_work": {
+            "$ref": "#/components/schemas/ActiveWorkSummary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service_version",
+          "instance_id",
+          "pid",
+          "started_at",
+          "data_dir",
+          "managed",
+          "active_work"
+        ],
+        "title": "ServiceHealth"
+      },
+      "ServiceStopRequest": {
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ServiceStopRequest"
+      },
+      "ServiceStopResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "stopping",
+            "title": "Status",
+            "default": "stopping"
+          },
+          "forced": {
+            "type": "boolean",
+            "title": "Forced"
+          },
+          "interrupted_runs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Interrupted Runs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "forced",
+          "interrupted_runs"
+        ],
+        "title": "ServiceStopResponse"
       },
       "SessionListResponse": {
         "properties": {

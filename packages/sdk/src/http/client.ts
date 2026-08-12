@@ -10,6 +10,8 @@ import type {
   ModelListResponse,
   SessionListResponse,
   SessionSnapshot,
+  ServiceStopRequest,
+  ServiceStopResponse,
   UpdateSessionModelRequest,
 } from "../types/protocol.js";
 import { PROTOCOL_VERSION, type ProtocolVersion } from "../version.js";
@@ -48,6 +50,7 @@ export interface TypedCodeClient {
     body: UpdateSessionModelRequest,
   ): Promise<SessionSnapshot>;
   reloadConfig(): Promise<ConfigReloadResponse>;
+  stopService(body?: ServiceStopRequest): Promise<ServiceStopResponse>;
   streamEvents(
     sessionId: string,
     options: Omit<StreamOptions, never>,
@@ -181,6 +184,19 @@ class TypedCodeClientImpl implements TypedCodeClient {
       { method: "POST", body: {} },
     );
     return readJson<ConfigReloadResponse>(res);
+  }
+
+  async stopService(
+    body: ServiceStopRequest = {},
+  ): Promise<ServiceStopResponse> {
+    const res = await apiRequest(
+      this.#fetch,
+      this.baseUrl,
+      this.#token,
+      "/v1/service/stop",
+      { method: "POST", body },
+    );
+    return readJson<ServiceStopResponse>(res);
   }
 
   streamEvents(

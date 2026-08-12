@@ -17,15 +17,12 @@ class _Subscriber:
     overflowed: bool = False
 
 
-
 @dataclass
 class EventBus:
     """In-process pub/sub of committed public events."""
 
     maxsize: int = 256
-    _subs: dict[str, list[_Subscriber]] = field(
-        default_factory=lambda: defaultdict(list)
-    )
+    _subs: dict[str, list[_Subscriber]] = field(default_factory=lambda: defaultdict(list))
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def publish(self, session_id: str, events: list[EventEnvelope]) -> None:
@@ -46,13 +43,15 @@ class EventBus:
                         subscriber.queue.get_nowait()
                     subscriber.queue.put_nowait(None)
 
+    async def subscriber_count(self) -> int:
+        async with self._lock:
+            return sum(len(subscribers) for subscribers in self._subs.values())
+
     @asynccontextmanager
     async def subscribe(
         self, session_id: str
     ) -> AsyncIterator[asyncio.Queue[EventEnvelope | None]]:
-        subscriber = _Subscriber(
-            queue=asyncio.Queue(maxsize=self.maxsize)
-        )
+        subscriber = _Subscriber(queue=asyncio.Queue(maxsize=self.maxsize))
         async with self._lock:
             self._subs[session_id].append(subscriber)
         try:

@@ -68,6 +68,7 @@ function mockClient(overrides: Partial<TypedCodeClient> = {}): TypedCodeClient {
         phase: "running",
         status: "accepted",
       }) satisfies CreateTurnResponse,
+    updateSessionModel: async () => snapshot(),
     abort: async () => snapshot({ phase: "idle" }),
     decideApproval: async () => snapshot({ phase: "running", pending_approvals: [] }),
     streamEvents: (_id: string, _opts: StreamOptions) => sub,
@@ -132,6 +133,51 @@ describe("SessionController", () => {
 
     assert.equal(c.view.phase, "idle");
     assert.equal(c.view.snapshot?.phase, "idle");
+  });
+
+  it("refreshes authoritative state after abort and approval conflicts", async () => {
+    let abortReads = 0;
+    const abortClient = mockClient({
+      getSession: async () =>
+        abortReads++ === 0 ? snapshot() : snapshot({ phase: "running", revision: 2 }),
+      abort: async () => {
+        throw new Error("abort conflict");
+      },
+    });
+    const abortController = new SessionController(abortClient);
+    await abortController.attach("sess-1");
+    await assert.rejects(() => abortController.abort(), /abort conflict/);
+    assert.equal(abortController.view.phase, "running");
+    assert.equal(abortController.view.snapshot?.revision, 2);
+
+    let approvalReads = 0;
+    const pending = snapshot({
+      phase: "awaiting_approval",
+      pending_approvals: [
+        {
+          approval_id: "appr-conflict",
+          run_id: "r1",
+          tool_name: "bash",
+          summary: "run command",
+          status: "pending",
+          created_at: "t",
+        },
+      ],
+    });
+    const approvalClient = mockClient({
+      getSession: async () =>
+        approvalReads++ === 0
+          ? pending
+          : snapshot({ phase: "running", revision: 3, pending_approvals: [] }),
+      decideApproval: async () => {
+        throw new Error("approval conflict");
+      },
+    });
+    const approvalController = new SessionController(approvalClient);
+    await approvalController.attach("sess-1");
+    await assert.rejects(() => approvalController.approve(), /approval conflict/);
+    assert.equal(approvalController.view.phase, "running");
+    assert.deepEqual(approvalController.view.snapshot?.pending_approvals, []);
   });
 
   it("returns to live when an SSE connection reopens without a new event", async () => {

@@ -2,6 +2,8 @@
 
 export interface CliFlags {
   baseUrl: string;
+  /** True when --base-url or TYPED_CODE_BASE_URL selected an external endpoint. */
+  baseUrlExplicit: boolean;
   /** Empty until resolved from file/env/flag. */
   token: string;
   workspace: string;
@@ -16,6 +18,7 @@ export interface CliFlags {
 
 export function parseArgs(argv: string[]): CliFlags {
   const env = process.env;
+  let baseUrlExplicit = Boolean(env.TYPED_CODE_BASE_URL?.trim());
   let baseUrl = env.TYPED_CODE_BASE_URL ?? "http://127.0.0.1:8741";
   let token = env.TYPED_CODE_SERVER_TOKEN ?? "";
   let workspace = env.TYPED_CODE_WORKSPACE ?? process.cwd();
@@ -42,6 +45,7 @@ export function parseArgs(argv: string[]): CliFlags {
         break;
       case "--base-url":
         baseUrl = next();
+        baseUrlExplicit = true;
         break;
       case "--token":
         token = next();
@@ -79,6 +83,7 @@ export function parseArgs(argv: string[]): CliFlags {
 
   return {
     baseUrl: baseUrl.replace(/\/+$/, ""),
+    baseUrlExplicit,
     token,
     workspace,
     sessionId,
@@ -91,10 +96,10 @@ export function parseArgs(argv: string[]): CliFlags {
 }
 
 export function helpText(): string {
-  return `typed-code-cli — local coding agent (single entry)
+  return `typed-code — local coding agent
 
 Usage:
-  typed-code-cli [options]
+  typed-code [options]
 
 Default path:
   - Loads/creates ~/.config/typed-code/credentials.toml (server token auto)
@@ -102,6 +107,13 @@ Default path:
   - Runs secure provider setup in the TUI when required
   - Opens an unsaved new session for the canonical workspace
   - Persists the session only after the first non-empty prompt
+
+Service management:
+  typed-code server status
+  typed-code server start
+  typed-code server stop [--force]
+  typed-code server restart [--force]
+  typed-code server logs [--lines <count>]
 
 Options:
   --workspace <path>     Launch workspace (default: cwd)
@@ -113,6 +125,11 @@ Options:
   --token <token>        Advanced: server bearer (default: credentials.toml)
   --no-spawn             Advanced: do not auto-start serve
   -h, --help             Show help
+
+Development setup:
+  typed-code dev configure --project <absolute-source-root>
+  typed-code dev configure --executable <absolute-server-path>
+  typed-code dev status
 
 In-chat commands:
   /help                  Show command help

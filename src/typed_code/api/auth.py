@@ -37,6 +37,7 @@ async def require_bearer(
             code=ErrorCode.UNAUTHORIZED,
             message="missing or invalid bearer token",
         )
+    state.note_authenticated_activity()
 
 
 class HTTPExceptionWithStructuredError(Exception):
@@ -47,8 +48,6 @@ class HTTPExceptionWithStructuredError(Exception):
         super().__init__(message)
 
 
-async def structured_http_exception_handler(
-    _request: Request, exc: Exception
-):
+async def structured_http_exception_handler(_request: Request, exc: Exception):
     assert isinstance(exc, HTTPExceptionWithStructuredError)
     return structured_error_response(exc.status_code, exc.code, exc.message)

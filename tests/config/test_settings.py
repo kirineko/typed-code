@@ -40,6 +40,7 @@ def test_defaults_without_file_or_env(tmp_path: Path) -> None:
     assert settings.default_model == "gpt-5.6-terra"
     assert settings.data_dir == tmp_path / "data" / "typed-code"
     assert settings.bash_executable == "/bin/bash"
+    assert settings.idle_timeout_seconds is None
 
 
 def test_config_file_overrides_environment(tmp_path: Path) -> None:
@@ -68,6 +69,9 @@ model = "deepseek-v4-flash"
 [bash]
 executable = "/usr/local/bin/bash"
 
+[service]
+idle_timeout_seconds = 42
+
 [limits]
 read_max_bytes = 111
 read_max_lines = 22
@@ -93,6 +97,7 @@ event_retention_count = 55
         "TYPED_CODE_BASH_MAX_STDOUT_BYTES": "999",
         "TYPED_CODE_BASH_MAX_STDERR_BYTES": "999",
         "TYPED_CODE_EVENT_RETENTION_COUNT": "999",
+        "TYPED_CODE_IDLE_TIMEOUT_SECONDS": "99",
     }
 
     settings = load_settings(environ=environ)
@@ -110,6 +115,7 @@ event_retention_count = 55
     assert settings.bash_max_stdout_bytes == 333
     assert settings.bash_max_stderr_bytes == 444
     assert settings.event_retention_count == 55
+    assert settings.idle_timeout_seconds == 42
 
 
 def test_environment_fills_missing_file_fields(tmp_path: Path) -> None:
@@ -137,6 +143,16 @@ host = "127.0.0.3"
     assert settings.port == 8123
     assert settings.default_model == "from-env"
     assert settings.default_provider == DEFAULT_PROVIDER
+
+    assert (
+        load_settings(
+            environ={
+                "XDG_CONFIG_HOME": str(tmp_path / "missing-config"),
+                "TYPED_CODE_IDLE_TIMEOUT_SECONDS": "0",
+            }
+        ).idle_timeout_seconds
+        is None
+    )
 
 
 def test_invalid_toml_raises_configuration_error(tmp_path: Path) -> None:

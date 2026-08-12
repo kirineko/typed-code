@@ -31,12 +31,21 @@ def token() -> str:
 
 @pytest_asyncio.fixture
 async def api_env(
-    tmp_path: Path, token: str
+    tmp_path: Path,
+    token: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[tuple[AppState, Path, str]]:
     ws = tmp_path / "workspace"
     ws.mkdir()
     data_dir = tmp_path / "data"
     data_dir.mkdir()
+    config_dir = tmp_path / "config" / "typed-code"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.toml").write_text(
+        f'[data]\ndir = "{data_dir}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
 
     settings = Settings(
         data_dir=data_dir,

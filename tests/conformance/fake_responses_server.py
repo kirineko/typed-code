@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -16,12 +17,13 @@ class FakeResponsesState:
 
     paths: list[str] = field(default_factory=list)
     bodies: list[dict[str, Any]] = field(default_factory=list)
-    mode: str = "text"  # text | thinking | tools | error | unknown | slow
+    mode: str = "text"  # text | thinking | tools | approval | error | unknown | slow
     model_ids: list[str] = field(default_factory=lambda: ["gpt-5.6-sol", "other-model"])
 
 
 def create_fake_app(state: FakeResponsesState | None = None) -> FastAPI:
-    state = state or FakeResponsesState()
+    if state is None:
+        state = FakeResponsesState(mode=os.environ.get("TYPED_CODE_FAKE_MODE", "text"))
     app = FastAPI()
 
     @app.middleware("http")
@@ -51,7 +53,7 @@ def create_fake_app(state: FakeResponsesState | None = None) -> FastAPI:
         stream = bool(body.get("stream"))
         if stream:
             return StreamingResponse(
-                _sse_events(state.mode),
+                _sse_events(state.mode, body),
                 media_type="text/event-stream",
             )
         return JSONResponse(_non_stream_body(state.mode, body))
@@ -101,6 +103,18 @@ def _non_stream_body(mode: str, request_body: dict[str, Any]) -> dict[str, Any]:
                 "arguments": json.dumps({"text": "hi"}),
             }
         ]
+    if mode == "approval" and "function_call_output" not in json.dumps(request_body):
+        output = [
+            {
+                "type": "function_call",
+                "id": "fc_approval_1",
+                "call_id": "call_approval_1",
+                "name": "bash",
+                "arguments": json.dumps(
+                    {"command": "printf frozen-tool-ok > frozen-tool.txt"}
+                ),
+            }
+        ]
     if mode == "unknown":
         output.append({"type": "typed_code_unknown_event", "id": "unk_1", "payload": {}})
 
@@ -119,9 +133,60 @@ def _non_stream_body(mode: str, request_body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _sse_events(mode: str):
-    # Minimal SSE frames; OpenAI client is resilient enough for basic cases.
-    # Prefer non-stream in most tests; this path exists for coverage.
-    payload = _non_stream_body(mode, {"model": "fake"})
-    yield f"event: response.completed\ndata: {json.dumps(payload)}\n\n"
+async def _sse_events(mode: str, request_body: dict[str, Any]):
+    payload = _non_stream_body(mode, request_body)
+    output = payload["output"]
+    sequence = 1
+
+    for output_index, item in enumerate(output):
+        added_item = dict(item)
+        if item["type"] == "message":
+            added_item["content"] = []
+            added_item["status"] = "in_progress"
+        yield _sse_frame(
+            "response.output_item.added",
+            {
+                "output_index": output_index,
+                "item": added_item,
+                "sequence_number": sequence,
+            },
+        )
+        sequence += 1
+
+        if item["type"] == "reasoning":
+            yield _sse_frame(
+                "response.reasoning_summary_text.delta",
+                {
+                    "item_id": item["id"],
+                    "output_index": output_index,
+                    "summary_index": 0,
+                    "delta": item["summary"][0]["text"],
+                    "sequence_number": sequence,
+                },
+            )
+            sequence += 1
+        elif item["type"] == "message":
+            text = item["content"][0]["text"]
+            yield _sse_frame(
+                "response.output_text.delta",
+                {
+                    "item_id": item["id"],
+                    "output_index": output_index,
+                    "content_index": 0,
+                    "delta": text,
+                    "logprobs": [],
+                    "sequence_number": sequence,
+                },
+            )
+            sequence += 1
+
+    yield _sse_frame(
+        "response.completed",
+        {"response": payload, "sequence_number": sequence},
+    )
     yield "data: [DONE]\n\n"
+
+
+def _sse_frame(event_type: str, data: dict[str, Any]) -> str:
+    payload = {"type": event_type, **data}
+    return f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
