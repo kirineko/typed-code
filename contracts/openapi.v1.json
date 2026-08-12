@@ -947,6 +947,11 @@
             "title": "Parallel Tool Calls",
             "default": true
           },
+          "web_search": {
+            "type": "boolean",
+            "title": "Web Search",
+            "default": false
+          },
           "reasoning_levels": {
             "items": {
               "type": "string"
@@ -1002,6 +1007,7 @@
               "image_input": false,
               "tools": true,
               "parallel_tool_calls": true,
+              "web_search": false,
               "reasoning_levels": []
             }
           },

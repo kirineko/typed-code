@@ -24,6 +24,8 @@ def test_deepseek_profile_stateless_no_previous_response() -> None:
     assert p.image_input is False
     assert p.tools is True
     assert p.parallel_tool_calls is True
+    assert p.native_web_search is True
+    assert p.to_public_capabilities().web_search is True
     assert p.context_token_budget == DEEPSEEK_CONTEXT_TOKEN_BUDGET
     assert p.reasoning_levels == ("none", "low", "high", "max")
     assert p.default_reasoning_level == "high"
@@ -40,6 +42,8 @@ def test_cliproxy_profile_per_model() -> None:
     caps = p.to_public_capabilities()
     assert caps.text_input is True
     assert caps.image_input is False
+    assert p.native_web_search is True
+    assert caps.web_search is True
 
 def test_cliproxy_unknown_model_budget() -> None:
     p = cliproxy_profile("local-llama-custom")

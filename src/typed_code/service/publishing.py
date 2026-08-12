@@ -64,6 +64,16 @@ class PublishingRepository(SessionRepository):  # type: ignore[misc]
             await self._inner.finish_thinking(session_id, **kwargs)
         )
 
+    async def record_tool_started(
+        self, session_id: str, **kwargs: Any
+    ) -> PersistResult:
+        return await self._emit(
+            await self._inner.record_tool_started(session_id, **kwargs)
+        )
+
+    async def finish_tool(self, session_id: str, **kwargs: Any) -> PersistResult:
+        return await self._emit(await self._inner.finish_tool(session_id, **kwargs))
+
     async def complete_run(self, session_id: str) -> PersistResult:
         return await self._emit(await self._inner.complete_run(session_id))
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
-from pydantic_ai import ThinkingPart
+from pydantic_ai import ThinkingPart, ThinkingPartDelta
 from pydantic_ai.models.test import TestModel
 
 from typed_code.config.credentials import Credentials, ProviderAvailability
@@ -21,7 +21,8 @@ from typed_code.providers.catalog import ModelCatalog
 from typed_code.providers.profiles import DEEPSEEK_MODEL_ID
 from typed_code.providers.settings_normalize import RunSettingRequest
 from typed_code.runtime import AgentRuntime
-from typed_code.runtime.adapter import _thinking_text
+from typed_code.runtime.adapter import _prefer_thinking_text, _thinking_text
+from typed_code.runtime.thinking import apply_thinking_delta
 
 
 def test_deepseek_provider_reasoning_is_displayable() -> None:
@@ -32,6 +33,51 @@ def test_deepseek_provider_reasoning_is_displayable() -> None:
     )
 
     assert _thinking_text(part) == "inspect the workspace first"
+
+
+def test_thinking_text_prefers_longer_native_payload() -> None:
+    part = ThinkingPart(
+        content="用",
+        provider_name="deepseek",
+        provider_details={"raw_content": ["用户先确认角色再搜索"]},
+    )
+
+    assert _thinking_text(part) == "用户先确认角色再搜索"
+
+
+def test_apply_thinking_delta_reads_provider_raw_content() -> None:
+    part = ThinkingPart(
+        content="用",
+        provider_name="deepseek",
+        provider_details={"raw_content": ["用"]},
+    )
+
+    def update_raw(existing: dict[str, object] | None) -> dict[str, object]:
+        details = dict(existing or {})
+        raw_value = details.get("raw_content", [])
+        raw = list(raw_value) if isinstance(raw_value, list) else [""]
+        if not raw:
+            raw = [""]
+        raw[0] = str(raw[0]) + "户先确认"
+        details["raw_content"] = raw
+        return details
+
+    updated, piece = apply_thinking_delta(
+        part, ThinkingPartDelta(provider_details=update_raw)
+    )
+
+    assert piece == "户先确认"
+    assert _thinking_text(updated) == "用户先确认"
+
+
+def test_prefer_thinking_text_keeps_longer_streamed_accumulation() -> None:
+    part = ThinkingPart(content="用户", provider_name="deepseek")
+
+    assert (
+        _prefer_thinking_text(part, "用户先确认角色再搜索")
+        == "用户先确认角色再搜索"
+    )
+    assert _prefer_thinking_text(part, "") == "用户"
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,7 @@ async def test_models_include_context_token_budget(
         assert "context_token_budget" in m
         assert isinstance(m["context_token_budget"], int)
         assert m["context_token_budget"] > 0
+        assert m["capabilities"]["web_search"] is True
     deepseek = next(m for m in models if m["provider"] == "deepseek")
     assert deepseek["context_token_budget"] == 1_000_000
     sol = next((m for m in models if m["model_id"] == "gpt-5.6-sol"), None)

@@ -108,6 +108,7 @@ describe("session reducer", () => {
       }),
     );
     assert.equal(state.tools.tc1?.status, "started");
+    assert.equal(state.snapshot?.transcript.at(-1)?.type, "tool_call");
     state = applyEvent(
       state,
       env(2, "approval.requested", {
@@ -206,9 +207,48 @@ describe("session reducer", () => {
     assert.deepEqual(state.tools.tc1, {
       tool_call_id: "tc1",
       tool_name: "bash",
-      summary: "tests failed",
+      summary: "run tests",
       status: "failed",
     });
+    assert.equal(
+      state.snapshot?.transcript.find((item) => item.type === "tool_call")?.summary,
+      "run tests",
+    );
+    assert.equal(
+      state.snapshot?.transcript.find((item) => item.type === "tool_result")?.summary,
+      "tests failed",
+    );
+  });
+
+  it("keeps the web search query when the result summary arrives", () => {
+    let state = applySnapshot(createSessionViewState(), baseSnapshot());
+    state = applyEvent(
+      state,
+      env(1, "tool.started", {
+        type: "tool.started",
+        tool_call_id: "ws_1",
+        tool_name: "web_search",
+        summary: "search 糯糯",
+      }),
+    );
+    state = applyEvent(
+      state,
+      env(2, "tool.completed", {
+        type: "tool.completed",
+        tool_call_id: "ws_1",
+        summary: "search completed",
+        ok: true,
+      }),
+    );
+
+    assert.deepEqual(state.tools.ws_1, {
+      tool_call_id: "ws_1",
+      tool_name: "web_search",
+      summary: "search 糯糯",
+      status: "completed",
+    });
+    const types = state.snapshot?.transcript.map((item) => item.type);
+    assert.deepEqual(types, ["tool_call", "tool_result"]);
   });
 
   it("applies replay reset snapshot and rejects older events", () => {

@@ -41,6 +41,7 @@ def test_defaults_without_file_or_env(tmp_path: Path) -> None:
     assert settings.data_dir == tmp_path / "data" / "typed-code"
     assert settings.bash_executable == "/bin/bash"
     assert settings.idle_timeout_seconds is None
+    assert settings.native_web_search is True
 
 
 def test_config_file_overrides_environment(tmp_path: Path) -> None:
@@ -116,6 +117,7 @@ event_retention_count = 55
     assert settings.bash_max_stderr_bytes == 444
     assert settings.event_retention_count == 55
     assert settings.idle_timeout_seconds == 42
+    assert settings.native_web_search is True
 
 
 def test_environment_fills_missing_file_fields(tmp_path: Path) -> None:
@@ -182,3 +184,43 @@ provider = "openai"
         load_settings(environ={"XDG_CONFIG_HOME": str(config_home)})
 
     assert exc_info.value.code == "config_invalid_value"
+
+
+def test_native_web_search_file_overrides_env(tmp_path: Path) -> None:
+    config_home = tmp_path / "config"
+    _write(
+        config_home / "typed-code" / "config.toml",
+        """
+[tools]
+native_web_search = false
+""".strip()
+        + "\n",
+    )
+    settings = load_settings(
+        environ={
+            "XDG_CONFIG_HOME": str(config_home),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+            "TYPED_CODE_NATIVE_WEB_SEARCH": "true",
+        }
+    )
+    assert settings.native_web_search is False
+
+
+def test_native_web_search_env_when_file_omits(tmp_path: Path) -> None:
+    config_home = tmp_path / "config"
+    _write(
+        config_home / "typed-code" / "config.toml",
+        """
+[listen]
+host = "127.0.0.4"
+""".strip()
+        + "\n",
+    )
+    settings = load_settings(
+        environ={
+            "XDG_CONFIG_HOME": str(config_home),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+            "TYPED_CODE_NATIVE_WEB_SEARCH": "false",
+        }
+    )
+    assert settings.native_web_search is False

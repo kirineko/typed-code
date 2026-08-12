@@ -59,6 +59,7 @@ class ProviderProfile:
     file_input: bool
     tools: bool
     parallel_tool_calls: bool
+    native_web_search: bool
     tool_choice_modes: frozenset[str]
     reasoning_levels: tuple[str, ...]
     default_reasoning_level: str | None
@@ -75,6 +76,7 @@ class ProviderProfile:
             image_input=self.image_input,
             tools=self.tools,
             parallel_tool_calls=self.parallel_tool_calls,
+            web_search=self.native_web_search,
             reasoning_levels=list(self.reasoning_levels),
             default_reasoning_level=self.default_reasoning_level,
         )
@@ -91,6 +93,7 @@ DEEPSEEK_PROFILE = ProviderProfile(
     file_input=False,
     tools=True,
     parallel_tool_calls=True,
+    native_web_search=True,
     tool_choice_modes=frozenset({"auto", "none"}),
     reasoning_levels=DEEPSEEK_REASONING_LEVELS,
     default_reasoning_level="high",
@@ -120,6 +123,7 @@ def cliproxy_profile(model_id: str) -> ProviderProfile:
         file_input=False,
         tools=True,
         parallel_tool_calls=True,
+        native_web_search=True,
         tool_choice_modes=frozenset({"auto", "none", "required"}),
         reasoning_levels=(
             OPENAI_REASONING_LEVELS if is_openai_reasoning_model_id(model_id) else ()

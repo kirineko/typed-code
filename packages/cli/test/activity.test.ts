@@ -94,6 +94,25 @@ describe("deriveAgentActivity", () => {
     assert.equal(activity.label, "Calling read");
   });
 
+  it("identifies an active native web search", () => {
+    const current = view({
+      tools: {
+        ws_1: {
+          tool_call_id: "ws_1",
+          tool_name: "web_search",
+          summary: "search typed-code release",
+          status: "started",
+        },
+      },
+    });
+
+    const activity = deriveAgentActivity({ kind: "attached", view: current });
+
+    assert.equal(activity.kind, "calling_tool");
+    assert.equal(activity.label, "Calling web_search");
+    assert.equal(activity.detail, "search typed-code release");
+  });
+
   it("does not repeat a tool name when the service summary is only its label", () => {
     const approvalActivity = deriveAgentActivity({
       kind: "attached",

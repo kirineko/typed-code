@@ -17,6 +17,7 @@ class ModelCapabilities(ProtocolModel):
     image_input: bool = False
     tools: bool = True
     parallel_tool_calls: bool = True
+    web_search: bool = False
     reasoning_levels: list[str] = []
     default_reasoning_level: str | None = None
 

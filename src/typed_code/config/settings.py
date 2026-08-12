@@ -24,6 +24,7 @@ DEFAULT_READ_MAX_LINES = 2_000
 DEFAULT_BASH_MAX_STDOUT_BYTES = 256_000
 DEFAULT_BASH_MAX_STDERR_BYTES = 256_000
 DEFAULT_EVENT_RETENTION_COUNT = 2_000
+DEFAULT_NATIVE_WEB_SEARCH = True
 
 ProviderName = Literal["deepseek", "cliproxy"]
 
@@ -45,6 +46,7 @@ class Settings(BaseModel):
     bash_max_stderr_bytes: int = Field(default=DEFAULT_BASH_MAX_STDERR_BYTES, ge=1)
     event_retention_count: int = Field(default=DEFAULT_EVENT_RETENTION_COUNT, ge=1)
     idle_timeout_seconds: int | None = Field(default=None, ge=1)
+    native_web_search: bool = DEFAULT_NATIVE_WEB_SEARCH
 
     @field_validator("data_dir", mode="before")
     @classmethod
@@ -189,6 +191,25 @@ def _optional_timeout(*candidates: object | None) -> int | None:
     return None if value == 0 else value
 
 
+def _first_bool(*candidates: object | None, default: bool) -> bool:
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        if isinstance(candidate, bool):
+            return candidate
+        if isinstance(candidate, str):
+            lowered = candidate.strip().lower()
+            if lowered in {"1", "true", "yes", "on"}:
+                return True
+            if lowered in {"0", "false", "no", "off"}:
+                return False
+        raise ConfigurationError(
+            "config_invalid_value",
+            "Expected a boolean configuration value",
+        )
+    return default
+
+
 def load_settings(
     *,
     config_path: Path | None = None,
@@ -215,6 +236,7 @@ def load_settings(
     bash = _section(file_data, "bash")
     limits = _section(file_data, "limits")
     service = _section(file_data, "service")
+    tools = _section(file_data, "tools")
 
     data_dir_raw = _first_str(
         _file_value(data, "dir"),
@@ -288,6 +310,11 @@ def load_settings(
                 _file_value(limits, "event_retention_count"),
                 _env_int(env, "TYPED_CODE_EVENT_RETENTION_COUNT"),
                 default=DEFAULT_EVENT_RETENTION_COUNT,
+            ),
+            native_web_search=_first_bool(
+                _file_value(tools, "native_web_search"),
+                _env_str(env, "TYPED_CODE_NATIVE_WEB_SEARCH"),
+                default=DEFAULT_NATIVE_WEB_SEARCH,
             ),
         )
     except ConfigurationError:

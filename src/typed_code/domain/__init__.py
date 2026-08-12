@@ -14,6 +14,7 @@ from typed_code.domain.session import (
     RunState,
     SessionState,
 )
+from typed_code.domain.tool_activity import finish_tool, record_tool_started
 from typed_code.domain.transitions import (
     TransitionResult,
     cancel_run,
@@ -48,10 +49,12 @@ __all__ = [
     "fail_run",
     "finish_assistant_turn",
     "finish_thinking",
+    "finish_tool",
     "interrupt_run",
     "record_assistant_delta",
     "record_compaction",
     "record_thinking_delta",
+    "record_tool_started",
     "request_approval",
     "resolve_approval",
     "start_turn",

@@ -17,7 +17,7 @@ class FakeResponsesState:
 
     paths: list[str] = field(default_factory=list)
     bodies: list[dict[str, Any]] = field(default_factory=list)
-    mode: str = "text"  # text | thinking | tools | approval | error | unknown | slow
+    mode: str = "text"  # text | thinking | tools | approval | error | unknown | slow | web_search
     model_ids: list[str] = field(default_factory=lambda: ["gpt-5.6-sol", "other-model"])
 
 
@@ -115,6 +115,22 @@ def _non_stream_body(mode: str, request_body: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         ]
+    if mode == "web_search":
+        output = [
+            {
+                "type": "web_search_call",
+                "id": "ws_1",
+                "status": "completed",
+                "action": {"type": "search", "query": "latest typed-code release"},
+            },
+            {
+                "type": "message",
+                "id": "msg_1",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": text}],
+                "status": "completed",
+            },
+        ]
     if mode == "unknown":
         output.append({"type": "typed_code_unknown_event", "id": "unk_1", "payload": {}})
 
@@ -153,7 +169,22 @@ async def _sse_events(mode: str, request_body: dict[str, Any]):
         )
         sequence += 1
 
-        if item["type"] == "reasoning":
+        if item["type"] == "web_search_call":
+            for event_type in (
+                "response.web_search_call.in_progress",
+                "response.web_search_call.searching",
+                "response.web_search_call.completed",
+            ):
+                yield _sse_frame(
+                    event_type,
+                    {
+                        "item_id": item["id"],
+                        "output_index": output_index,
+                        "sequence_number": sequence,
+                    },
+                )
+                sequence += 1
+        elif item["type"] == "reasoning":
             yield _sse_frame(
                 "response.reasoning_summary_text.delta",
                 {
@@ -179,6 +210,16 @@ async def _sse_events(mode: str, request_body: dict[str, Any]):
                 },
             )
             sequence += 1
+
+        yield _sse_frame(
+            "response.output_item.done",
+            {
+                "output_index": output_index,
+                "item": item,
+                "sequence_number": sequence,
+            },
+        )
+        sequence += 1
 
     yield _sse_frame(
         "response.completed",

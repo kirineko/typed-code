@@ -66,6 +66,7 @@ export interface ModelCapabilities {
   image_input: boolean;
   tools: boolean;
   parallel_tool_calls: boolean;
+  web_search?: boolean;
   reasoning_levels: string[];
   default_reasoning_level?: ReasoningLevel | null;
 }

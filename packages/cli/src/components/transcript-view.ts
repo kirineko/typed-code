@@ -195,14 +195,6 @@ export class TranscriptView implements Component {
     for (const item of view.snapshot?.transcript ?? []) {
       this.reconcileTranscriptItem(item, nextOrder);
     }
-    for (const [id, buffer] of Object.entries(view.assistantBuffers)) {
-      this.upsert(
-        `assistant:${id}`,
-        "assistant",
-        { text: buffer, streaming: true },
-        nextOrder,
-      );
-    }
     for (const [id, buffer] of Object.entries(view.thinkingBuffers)) {
       this.upsert(
         `thinking:${id}`,
@@ -213,6 +205,14 @@ export class TranscriptView implements Component {
     }
     for (const tool of Object.values(view.tools)) {
       this.upsert(`tool:${tool.tool_call_id}`, "tool", tool, nextOrder);
+    }
+    for (const [id, buffer] of Object.entries(view.assistantBuffers)) {
+      this.upsert(
+        `assistant:${id}`,
+        "assistant",
+        { text: buffer, streaming: true },
+        nextOrder,
+      );
     }
     if (view.error) {
       this.upsert(
@@ -400,7 +400,9 @@ export class TranscriptView implements Component {
       this.blocks.set(key, block);
     }
     block.update(value);
-    nextOrder.push(key);
+    if (!nextOrder.includes(key)) {
+      nextOrder.push(key);
+    }
   }
 }
 

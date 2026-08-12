@@ -24,7 +24,6 @@ from pydantic_ai import (
     ToolApproved,
     ToolDenied,
 )
-from pydantic_ai.messages import ModelResponse
 from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
 
@@ -47,6 +46,12 @@ from typed_code.providers.settings_normalize import (
 )
 from typed_code.runtime.cancellation import RunCancelScope
 from typed_code.runtime.history import dumps_messages, loads_messages
+from typed_code.runtime.native_activity import NativeSearchActivity
+from typed_code.runtime.native_tools import (
+    native_web_search_capabilities,
+    native_web_search_enabled,
+)
+from typed_code.runtime.thinking import apply_thinking_delta, prefer_thinking_text, thinking_text
 from typed_code.runtime.tools import (
     WorkspaceToolDeps,
     approval_request_json,
@@ -55,6 +60,9 @@ from typed_code.runtime.tools import (
 from typed_code.workspace.backend import LocalBashExecutionBackend
 from typed_code.workspace.locks import WorkspaceGateRegistry
 from typed_code.workspace.policy import tool_summary
+
+_thinking_text = thinking_text
+_prefer_thinking_text = prefer_thinking_text
 
 
 def _model_settings(effective: EffectiveRunSettings) -> ModelSettings:
@@ -73,30 +81,21 @@ def _model_settings(effective: EffectiveRunSettings) -> ModelSettings:
         settings["parallel_tool_calls"] = effective.parallel_tool_calls
     return cast(ModelSettings, settings)
 
-def _thinking_text(part: ThinkingPart) -> str:
-    """Return displayable reasoning, including DeepSeek's provider-native field."""
-    if part.content:
-        return part.content
-    details = part.provider_details
-    if details is None:
-        return ""
-    raw_content = details.get("raw_content")
-    if isinstance(raw_content, str):
-        return raw_content
-    if isinstance(raw_content, list):
-        return "".join(item for item in raw_content if isinstance(item, str))
-    return ""
 
-
-
-
-def _make_workspace_agent(model: Model, system_prompt: str) -> Agent[WorkspaceToolDeps, Any]:
+def _make_workspace_agent(
+    model: Model,
+    system_prompt: str,
+    *,
+    capabilities: list[Any] | None = None,
+) -> Agent[WorkspaceToolDeps, Any]:
     """Construct a tools-enabled agent (kwargs path avoids PAI generic overload noise)."""
     kwargs: dict[str, Any] = {
         "system_prompt": system_prompt,
         "deps_type": WorkspaceToolDeps,
         "output_type": [str, DeferredToolRequests],
     }
+    if capabilities:
+        kwargs["capabilities"] = capabilities
     agent = Agent(model, **kwargs)
     return cast(Agent[WorkspaceToolDeps, Any], agent)
 
@@ -131,6 +130,7 @@ class AgentRuntime:
     model_override: Model | None = None
     system_prompt: str = (
         "You are a coding agent. Prefer workspace tools for files and shell. "
+        "Use provider web search for current or external facts. "
         "Be concise and correct."
     )
     enable_workspace_tools: bool = True
@@ -426,6 +426,10 @@ class AgentRuntime:
         scope: RunCancelScope,
     ) -> tuple[Agent[Any, Any], WorkspaceToolDeps | None]:
         model = self.model_override or build_responses_model(resolved, api_key=api_key)
+        profile = profile_for(resolved.provider, resolved.model_id)
+        capabilities = native_web_search_capabilities(
+            native_web_search_enabled(self._settings(), profile, model)
+        )
         use_tools = self.enable_workspace_tools
         if use_tools:
             from pathlib import Path
@@ -434,14 +438,20 @@ class AgentRuntime:
                 use_tools = False
 
         if not use_tools:
-            agent: Agent[None, str] = Agent(
-                model, system_prompt=self.system_prompt, output_type=str
-            )
+            agent_kwargs: dict[str, Any] = {
+                "system_prompt": self.system_prompt,
+                "output_type": str,
+            }
+            if capabilities:
+                agent_kwargs["capabilities"] = capabilities
+            agent: Agent[None, str] = Agent(model, **agent_kwargs)
             return agent, None
 
         backend = await self._backend_for(workspace_path)
         deps = WorkspaceToolDeps(backend, cancel_event=scope._event)
-        agent_ws = _make_workspace_agent(model, self.system_prompt)
+        agent_ws = _make_workspace_agent(
+            model, self.system_prompt, capabilities=capabilities
+        )
         bind_workspace_tools(agent_ws)
         return cast(Agent[Any, Any], agent_ws), deps
 
@@ -468,13 +478,15 @@ class AgentRuntime:
         """Run an agent while durably publishing final-text and reasoning fragments."""
         assistant_id = message_id or new_transcript_item_id()
         pending_text: dict[int, str] = {}
-        thinking: dict[int, tuple[str, str]] = {}
-        completed_thinking: list[tuple[str, str]] = []
+        thinking: dict[int, tuple[str, ThinkingPart]] = {}
         final_text_index: int | None = None
         last_part: tuple[int, str] | None = None
         result: Any | None = None
         assistant_delta_buffer = ""
         last_assistant_flush = 0.0
+        thinking_delta_buffer: dict[str, str] = {}
+        last_thinking_flush = 0.0
+        native_search = NativeSearchActivity()
 
         async def flush_assistant_delta(*, force: bool = False) -> None:
             nonlocal assistant_delta_buffer, last_assistant_flush
@@ -496,6 +508,26 @@ class AgentRuntime:
                 delta=delta,
             )
 
+        async def flush_thinking_delta(thinking_id: str, *, force: bool = False) -> None:
+            nonlocal last_thinking_flush
+            buf = thinking_delta_buffer.get(thinking_id, "")
+            if not buf:
+                return
+            now = monotonic()
+            if (
+                not force
+                and len(buf) < 256
+                and now - last_thinking_flush < 0.05
+            ):
+                return
+            thinking_delta_buffer[thinking_id] = ""
+            last_thinking_flush = now
+            await self.repository.record_thinking_delta(
+                session_id,
+                thinking_id=thinking_id,
+                delta=buf,
+            )
+
         async with agent.run_stream_events(
             prompt,
             message_history=message_history,
@@ -510,17 +542,17 @@ class AgentRuntime:
                         last_part = (event.index, "text")
                     elif isinstance(event.part, ThinkingPart):
                         thinking_id = new_transcript_item_id()
-                        text = _thinking_text(event.part)
-                        thinking[event.index] = (thinking_id, text)
+                        thinking[event.index] = (thinking_id, event.part)
                         last_part = (event.index, "thinking")
+                        text = _thinking_text(event.part)
                         if text:
-                            await self.repository.record_thinking_delta(
-                                session_id,
-                                thinking_id=thinking_id,
-                                delta=text,
-                            )
+                            thinking_delta_buffer[thinking_id] = text
+                            await flush_thinking_delta(thinking_id)
                     else:
                         last_part = (event.index, "other")
+                        await native_search.observe_start(
+                            self.repository, session_id, event.index, event.part
+                        )
                 elif isinstance(event, FinalResultEvent):
                     if (
                         event.tool_name is None
@@ -542,53 +574,50 @@ class AgentRuntime:
                             assistant_delta_buffer += delta
                             await flush_assistant_delta()
                     elif isinstance(event.delta, ThinkingPartDelta):
-                        delta = event.delta.content_delta or ""
                         current = thinking.get(event.index)
-                        if current is not None and delta:
-                            thinking_id, text = current
-                            thinking[event.index] = (thinking_id, text + delta)
-                            await self.repository.record_thinking_delta(
-                                session_id,
-                                thinking_id=thinking_id,
-                                delta=delta,
+                        if current is None:
+                            thinking_id = new_transcript_item_id()
+                            part = ThinkingPart(content="")
+                        else:
+                            thinking_id, part = current
+                        updated, piece = apply_thinking_delta(part, event.delta)
+                        thinking[event.index] = (thinking_id, updated)
+                        if piece:
+                            thinking_delta_buffer[thinking_id] = (
+                                thinking_delta_buffer.get(thinking_id, "") + piece
                             )
+                            await flush_thinking_delta(thinking_id)
                 elif isinstance(event, PartEndEvent):
                     if isinstance(event.part, ThinkingPart):
                         current = thinking.pop(event.index, None)
                         thinking_id = (
                             current[0] if current is not None else new_transcript_item_id()
                         )
-                        text = _thinking_text(event.part)
-                        if not text and current is not None:
-                            text = current[1]
-                        completed_thinking.append((thinking_id, text))
+                        accumulated = (
+                            _thinking_text(current[1]) if current is not None else ""
+                        )
+                        text = _prefer_thinking_text(event.part, accumulated)
+                        await flush_thinking_delta(thinking_id, force=True)
+                        await self.repository.finish_thinking(
+                            session_id, thinking_id=thinking_id, text=text
+                        )
                     elif isinstance(event.part, TextPart):
                         if event.index == final_text_index:
                             await flush_assistant_delta(force=True)
                         else:
                             pending_text.pop(event.index, None)
+                    else:
+                        await native_search.observe_end(
+                            self.repository, session_id, event.index, event.part
+                        )
                 elif isinstance(event, AgentRunResultEvent):
-                    provider_thinking = [
-                        _thinking_text(part)
-                        for message in event.result.new_messages()
-                        if isinstance(message, ModelResponse)
-                        for part in message.parts
-                        if isinstance(part, ThinkingPart)
-                    ]
-                    if provider_thinking:
-                        offset = len(completed_thinking) - len(provider_thinking)
-                        for index, text in enumerate(provider_thinking):
-                            target = offset + index
-                            if target >= 0 and text and not completed_thinking[target][1]:
-                                thinking_id, _ = completed_thinking[target]
-                                completed_thinking[target] = (thinking_id, text)
                     result = event.result
 
         await flush_assistant_delta(force=True)
-        completed_thinking.extend(thinking.values())
-        for thinking_id, text in completed_thinking:
+        for thinking_id, part in thinking.values():
+            await flush_thinking_delta(thinking_id, force=True)
             await self.repository.finish_thinking(
-                session_id, thinking_id=thinking_id, text=text
+                session_id, thinking_id=thinking_id, text=_thinking_text(part)
             )
         if result is None:
             raise RuntimeError("agent stream ended without a result")

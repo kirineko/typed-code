@@ -159,19 +159,48 @@ export function applyEvent(
       };
       tools[data.tool_call_id] = tool;
       next = { ...next, tools };
+      if (data.type === "tool.started") {
+        next = appendTranscript(next, {
+          type: "tool_call",
+          id: data.tool_call_id,
+          created_at: event.timestamp,
+          tool_name: data.tool_name,
+          summary: data.summary,
+          status: tool.status,
+        });
+      } else {
+        next = updateToolCall(next, data.tool_call_id, {
+          summary: data.summary,
+          status: tool.status,
+        });
+      }
       break;
     }
     case "tool.completed":
     case "tool.failed": {
       const tools = { ...next.tools };
       const prev = tools[data.tool_call_id];
+      const status = data.type === "tool.completed" ? "completed" : "failed";
+      const callSummary = prev?.summary || data.summary;
       tools[data.tool_call_id] = {
         tool_call_id: data.tool_call_id,
         tool_name: prev?.tool_name ?? "tool",
-        summary: data.summary,
-        status: data.type === "tool.completed" ? "completed" : "failed",
+        summary: callSummary,
+        status,
       };
       next = { ...next, tools };
+      next = updateToolCall(next, data.tool_call_id, {
+        summary: callSummary,
+        status,
+      });
+      next = appendTranscript(next, {
+        type: "tool_result",
+        id: `${data.tool_call_id}:result`,
+        created_at: event.timestamp,
+        tool_call_id: data.tool_call_id,
+        ok: data.type === "tool.completed",
+        summary: data.summary,
+      });
       break;
     }
     case "approval.requested": {
@@ -293,6 +322,21 @@ function appendTranscript(
     }
     return { ...s, transcript: [...s.transcript, item] };
   });
+}
+
+function updateToolCall(
+  state: SessionViewState,
+  toolCallId: string,
+  patch: { summary: string; status: StreamingTool["status"] },
+): SessionViewState {
+  return patchSnapshot(state, (s) => ({
+    ...s,
+    transcript: s.transcript.map((item) =>
+      item.type === "tool_call" && item.id === toolCallId
+        ? { ...item, summary: patch.summary, status: patch.status }
+        : item,
+    ),
+  }));
 }
 
 function upsertApproval(

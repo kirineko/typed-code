@@ -180,6 +180,124 @@ describe("TranscriptView reconciliation", () => {
     );
   });
 
+  it("keeps committed tools above later assistant text instead of repeating them at the end", () => {
+    const transcript = new TranscriptView();
+    transcript.setView(
+      view({
+        snapshot: snapshot({
+          transcript: [
+            {
+              type: "user_message",
+              id: "user",
+              created_at: "t",
+              text: "查一下糯糯",
+            },
+            {
+              type: "thinking",
+              id: "thought",
+              created_at: "t",
+              text: "先确认角色再搜索",
+            },
+            {
+              type: "tool_call",
+              id: "ws_1",
+              created_at: "t",
+              tool_name: "web_search",
+              summary: "search 糯糯",
+              status: "completed",
+            },
+            {
+              type: "assistant_message",
+              id: "assistant",
+              created_at: "t",
+              text: "糯糯是弗洛洛的二创称呼。",
+            },
+          ],
+        }),
+        tools: {
+          ws_1: {
+            tool_call_id: "ws_1",
+            tool_name: "web_search",
+            summary: "search completed",
+            status: "completed",
+          },
+        },
+      }),
+    );
+
+    const rendered = stripTerminalSequences(transcript.render(80).join("\n"));
+    const toolAt = rendered.indexOf("web_search");
+    const answerAt = rendered.indexOf("糯糯是弗洛洛");
+    assert.ok(toolAt >= 0 && answerAt > toolAt);
+    assert.equal(rendered.split("web_search").length - 1, 1);
+  });
+
+  it("renders live thinking and tools before a streaming assistant reply", () => {
+    const transcript = new TranscriptView();
+    transcript.setView(
+      view({
+        snapshot: snapshot({
+          transcript: [
+            {
+              type: "user_message",
+              id: "user",
+              created_at: "t",
+              text: "查一下糯糯",
+            },
+          ],
+        }),
+        thinkingBuffers: { thought: "先确认角色" },
+        tools: {
+          ws_1: {
+            tool_call_id: "ws_1",
+            tool_name: "web_search",
+            summary: "search 糯糯",
+            status: "started",
+          },
+        },
+        assistantBuffers: { assistant: "结合上下文，我先搜一下。" },
+      }),
+    );
+
+    const rendered = stripTerminalSequences(transcript.render(80).join("\n"));
+    const thinkingAt = rendered.indexOf("先确认角色");
+    const toolAt = rendered.indexOf("web_search");
+    const answerAt = rendered.indexOf("结合上下文");
+    assert.ok(thinkingAt >= 0 && toolAt > thinkingAt && answerAt > toolAt);
+  });
+
+  it("reconstructs completed web search from snapshot transcript items", () => {
+    const transcript = new TranscriptView();
+    transcript.setView(
+      view({
+        snapshot: snapshot({
+          transcript: [
+            {
+              type: "tool_call",
+              id: "ws_1",
+              created_at: "t",
+              tool_name: "web_search",
+              summary: "search typed-code release",
+              status: "completed",
+            },
+            {
+              type: "tool_result",
+              id: "ws_1:result",
+              created_at: "t",
+              tool_call_id: "ws_1",
+              ok: true,
+              summary: "search completed",
+            },
+          ],
+        }),
+      }),
+    );
+
+    const rendered = stripTerminalSequences(transcript.render(72).join("\n"));
+    assert.match(rendered, /web_search.*search typed-code release.*completed/);
+    assert.match(rendered, /Tool result · search completed/);
+  });
+
   it("reflows long Markdown without exceeding terminal width", () => {
     const transcript = new TranscriptView();
     transcript.setView(

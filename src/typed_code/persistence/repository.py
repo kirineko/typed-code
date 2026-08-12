@@ -19,6 +19,7 @@ from typed_code.domain.session import (
     RunState,
     SessionState,
 )
+from typed_code.domain.tool_activity import finish_tool, record_tool_started
 from typed_code.domain.transitions import (
     TransitionResult,
     cancel_run,
@@ -159,6 +160,46 @@ class SessionRepository:
         return await self._mutate(
             session_id,
             lambda s: finish_thinking(s, thinking_id=thinking_id, text=text),
+        )
+
+    async def record_tool_started(
+        self,
+        session_id: str,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        summary: str,
+    ) -> PersistResult:
+        return await self._mutate(
+            session_id,
+            lambda s: record_tool_started(
+                s,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                summary=summary,
+            ),
+        )
+
+    async def finish_tool(
+        self,
+        session_id: str,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        summary: str,
+        ok: bool,
+        call_summary: str | None = None,
+    ) -> PersistResult:
+        return await self._mutate(
+            session_id,
+            lambda s: finish_tool(
+                s,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                summary=summary,
+                ok=ok,
+                call_summary=call_summary,
+            ),
         )
 
     async def complete_run(self, session_id: str) -> PersistResult:

@@ -65,22 +65,22 @@ export function deriveAgentActivity(
     };
   }
 
-  const response = latestBuffer(view.assistantBuffers);
-  if (response) {
-    return {
-      kind: "responding",
-      label: "Responding",
-      detail: response,
-      connection,
-    };
-  }
-
   const thinking = latestBuffer(view.thinkingBuffers);
   if (thinking) {
     return {
       kind: "thinking",
       label: "Thinking",
       detail: thinking,
+      connection,
+    };
+  }
+
+  const response = latestBuffer(view.assistantBuffers);
+  if (response) {
+    return {
+      kind: "responding",
+      label: "Responding",
+      detail: response,
       connection,
     };
   }
